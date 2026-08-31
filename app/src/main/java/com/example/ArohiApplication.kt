@@ -7,6 +7,7 @@ import com.example.data.repository.MemoryRepository
 import com.example.data.repository.NotificationRepository
 import com.example.data.repository.RoutineRepository
 import com.example.data.repository.SettingsRepository
+import com.example.data.repository.TaskLogRepository
 import com.example.device.AppDiscoveryManager
 import com.example.device.ContactsManager
 import com.example.device.DeviceStateManager
@@ -30,6 +31,7 @@ class ArohiApplication : Application() {
     val notificationRepository by lazy { NotificationRepository(database.notificationDao()) }
     val routineRepository by lazy { RoutineRepository(database.routineDao()) }
     val conversationRepository by lazy { ConversationRepository(database.messageDao()) }
+    val taskLogRepository by lazy { TaskLogRepository(database.taskLogDao()) }
     val settingsRepository by lazy { SettingsRepository(this) }
 
     val deviceStateManager by lazy { DeviceStateManager(this) }
@@ -50,6 +52,7 @@ class ArohiApplication : Application() {
             memoryRepository = memoryRepository,
             notificationRepository = notificationRepository,
             routineRepository = routineRepository,
+            settingsRepository = settingsRepository,
             verificationEngine = verificationEngine
         )
     }

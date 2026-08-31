@@ -27,4 +27,7 @@ interface TaskLogDao {
 
     @Query("DELETE FROM task_logs")
     suspend fun clearAll()
+
+    @Query("SELECT * FROM task_logs WHERE id = :id LIMIT 1")
+    suspend fun getById(id: Long): TaskLogEntity?
 }

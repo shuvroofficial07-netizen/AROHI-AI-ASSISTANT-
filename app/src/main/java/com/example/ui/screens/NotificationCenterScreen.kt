@@ -45,6 +45,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -72,50 +73,29 @@ fun NotificationCenterScreen(
     val notifications by viewModel.notifications.collectAsState()
     val unreadCount by viewModel.unreadNotifCount.collectAsState()
     val diagnostics by viewModel.diagnostics.collectAsState()
+    val context = LocalContext.current
 
-    // Default mock notifications if none yet captured
-    val displayNotifications = remember(notifications) {
-        if (notifications.isNotEmpty()) {
-            notifications
-        } else {
-            listOf(
-                NotificationEntity(
-                    id = 1,
-                    packageName = "com.whatsapp",
-                    appName = "WhatsApp",
-                    title = "Rahul",
-                    text = "Hey, are you free for the call?",
-                    timestamp = System.currentTimeMillis() - 10 * 60 * 1000,
-                    isRead = false
-                ),
-                NotificationEntity(
-                    id = 2,
-                    packageName = "com.google.android.calendar",
-                    appName = "Calendar",
-                    title = "Team Sync Meeting",
-                    text = "In 30 mins (Google Meet link attached)",
-                    timestamp = System.currentTimeMillis() - 25 * 60 * 1000,
-                    isRead = false
-                ),
-                NotificationEntity(
-                    id = 3,
-                    packageName = "com.google.android.gm",
-                    appName = "Gmail",
-                    title = "Project Status",
-                    text = "Weekly Project Status Report is ready for review...",
-                    timestamp = System.currentTimeMillis() - 60 * 60 * 1000,
-                    isRead = true
-                ),
-                NotificationEntity(
-                    id = 4,
-                    packageName = "android",
-                    appName = "System",
-                    title = "Battery",
-                    text = "Battery fully charged (100%)",
-                    timestamp = System.currentTimeMillis() - 120 * 60 * 1000,
-                    isRead = true
-                )
-            )
+    // Real data only — no mock seeds. Empty state guides the user to grant access.
+    val displayNotifications = notifications
+    val unreadNotifications = remember(notifications) { notifications.filter { !it.isRead } }
+
+    // Real AI summary derived from actually captured notifications
+    val aiSummaryText = remember(notifications, unreadNotifications) {
+        when {
+            !diagnostics.isNotificationListenerActive ->
+                "বস, Notification Access এখনো বন্ধ। নিচের \"Allow Access\" বাটনে ট্যাপ করে পারমিশন দিন — এরপর সব অ্যাপের নোটিফিকেশন আমি রিয়েল-টাইমে পড়ে জানাব।"
+            notifications.isEmpty() ->
+                "বস, এখনো কোনো নোটিফিকেশন ক্যাপচার হয়নি। কোনো অ্যাপে নোটিফিকেশন এলে সাথে সাথে এখানে দেখা যাবে।"
+            unreadNotifications.isEmpty() ->
+                "সব নোটিফিকেশন পড়া হয়ে গেছে। মোট ${notifications.size}টি নোটিফিকেশন সংরক্ষিত আছে।"
+            else -> {
+                val byApp = unreadNotifications.groupBy { it.appName }
+                val appSummary = byApp.entries.take(3).joinToString(", ") { (app, list) ->
+                    "$app থেকে ${list.size}টি"
+                }
+                val latest = unreadNotifications.first()
+                "আপনার ${unreadNotifications.size}টি অপঠিত নোটিফিকেশন আছে — $appSummary। সাম্প্রতিকতম: ${latest.appName}: ${latest.title}।"
+            }
         }
     }
 
@@ -239,7 +219,7 @@ fun NotificationCenterScreen(
                             modifier = Modifier.size(12.dp)
                         )
                         Text(
-                            text = "5m ago",
+                            text = if (displayNotifications.isEmpty()) "STANDBY" else "LIVE",
                             fontSize = 11.sp,
                             color = CyanPrimary,
                             fontWeight = FontWeight.Medium
@@ -250,7 +230,7 @@ fun NotificationCenterScreen(
                 Spacer(modifier = Modifier.height(10.dp))
 
                 Text(
-                    text = "You have 3 unread messages from WhatsApp and 1 reminder for team meeting at 4:00 PM.",
+                    text = aiSummaryText,
                     fontSize = 12.sp,
                     color = Color(0xFFD1D5DB),
                     lineHeight = 18.sp
@@ -275,34 +255,85 @@ fun NotificationCenterScreen(
                 color = Color.White
             )
 
-            Text(
-                text = "Mark all read",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = VioletBright,
-                modifier = Modifier
-                    .clickable { viewModel.clearAllNotifications() }
-                    .testTag("mark_all_read_btn")
-            )
+            if (unreadCount > 0) {
+                Text(
+                    text = "Mark all read",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = VioletBright,
+                    modifier = Modifier
+                        .clickable { viewModel.clearAllNotifications() }
+                        .testTag("mark_all_read_btn")
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Notification List
-        LazyColumn(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            items(displayNotifications, key = { it.id }) { item ->
-                NotificationRowCard(
-                    notification = item,
-                    onSpeak = {
-                        viewModel.ttsManager.speak("${item.appName} থেকে নোটিফিকেশন: ${item.title}। ${item.text}")
-                    },
-                    onMarkRead = { viewModel.markNotificationRead(item.id) }
+        // Notification List (real captured notifications only)
+        if (displayNotifications.isEmpty()) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.NotificationsOff,
+                    contentDescription = null,
+                    tint = TextMuted,
+                    modifier = Modifier.size(42.dp)
                 )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "কোনো নোটিফিকেশন ক্যাপচার হয়নি",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = if (diagnostics.isNotificationListenerActive)
+                        "নতুন নোটিফিকেশন এলেই এখানে রিয়েল-টাইমে দেখা যাবে।"
+                    else
+                        "AROHI-কে নোটিফিকেশন পড়ার অনুমতি দিন:",
+                    fontSize = 12.sp,
+                    color = TextMuted,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+                if (!diagnostics.isNotificationListenerActive) {
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Button(
+                        onClick = {
+                            context.startActivity(
+                                android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = VioletBright),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Allow Access", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                items(displayNotifications, key = { it.id }) { item ->
+                    NotificationRowCard(
+                        notification = item,
+                        onSpeak = {
+                            viewModel.ttsManager.speak("${item.appName} থেকে নোটিফিকেশন: ${item.title}। ${item.text}")
+                        },
+                        onMarkRead = { viewModel.markNotificationRead(item.id) }
+                    )
+                }
             }
         }
     }

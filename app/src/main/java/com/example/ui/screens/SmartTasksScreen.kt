@@ -21,13 +21,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.HourglassEmpty
-import androidx.compose.material.icons.filled.Message
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.WbSunny
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -38,8 +38,8 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -48,13 +48,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.local.entity.TaskLogEntity
+import com.example.data.repository.TaskLogRepository
 import com.example.ui.components.GlassCard
 import com.example.ui.theme.AmberWarning
+import com.example.ui.theme.CrimsonError
 import com.example.ui.theme.CyanPrimary
 import com.example.ui.theme.EmeraldSuccess
 import com.example.ui.theme.MagentaAccent
@@ -64,66 +67,20 @@ import com.example.ui.theme.VioletBright
 import com.example.ui.theme.VioletSecondary
 import com.example.ui.viewmodel.ArohiViewModel
 
-enum class SmartTaskStatus(val label: String, val color: Color) {
-    COMPLETED("Completed", EmeraldSuccess),
-    IN_PROGRESS("In Progress", AmberWarning),
-    PENDING("Pending", TextMuted)
-}
-
-data class SmartTaskItem(
-    val id: String,
-    val title: String,
-    val status: SmartTaskStatus,
-    val icon: ImageVector,
-    val iconBgColor: Color,
-    val iconTint: Color = Color.White,
-    val actionPhrase: String = title
-)
-
 @Composable
 fun SmartTasksScreen(
     viewModel: ArohiViewModel,
     onBack: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val tasks = remember {
-        mutableStateListOf(
-            SmartTaskItem(
-                id = "1",
-                title = "YouTube এ গান চালাও",
-                status = SmartTaskStatus.COMPLETED,
-                icon = Icons.Default.PlayArrow,
-                iconBgColor = EmeraldSuccess.copy(alpha = 0.2f),
-                iconTint = EmeraldSuccess
-            ),
-            SmartTaskItem(
-                id = "2",
-                title = "Rahim কে মেসেজ পাঠাও",
-                status = SmartTaskStatus.IN_PROGRESS,
-                icon = Icons.Default.Message,
-                iconBgColor = CyanPrimary.copy(alpha = 0.2f),
-                iconTint = CyanPrimary
-            ),
-            SmartTaskItem(
-                id = "3",
-                title = "আজকের আবহাওয়া বলো",
-                status = SmartTaskStatus.PENDING,
-                icon = Icons.Default.WbSunny,
-                iconBgColor = VioletBright.copy(alpha = 0.2f),
-                iconTint = VioletBright
-            ),
-            SmartTaskItem(
-                id = "4",
-                title = "Calculator ওপেন করো",
-                status = SmartTaskStatus.PENDING,
-                icon = Icons.Default.Calculate,
-                iconBgColor = Color(0x22FFFFFF),
-                iconTint = Color.White
-            )
-        )
-    }
+    // Real tasks persisted in Room database — no fake seeds
+    val tasks by viewModel.taskLogs.collectAsState()
+    val runningTaskIds by viewModel.runningTaskIds.collectAsState()
 
     var showAddTaskDialog by remember { mutableStateOf(false) }
+    val finishedCount = tasks.count {
+        it.status == TaskLogRepository.STATUS_COMPLETED || it.status == TaskLogRepository.STATUS_FAILED
+    }
 
     Column(
         modifier = modifier
@@ -162,24 +119,75 @@ fun SmartTasksScreen(
                 fontWeight = FontWeight.Bold,
                 color = Color.White
             )
+
+            Spacer(modifier = Modifier.weight(1f))
+
+            if (finishedCount > 0) {
+                Text(
+                    text = "Clear finished",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = VioletBright,
+                    modifier = Modifier
+                        .clickable { viewModel.clearFinishedTasks() }
+                        .testTag("clear_finished_btn")
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Tasks List
-        LazyColumn(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            items(tasks, key = { it.id }) { task ->
-                SmartTaskCard(
-                    task = task,
-                    onClick = {
-                        viewModel.sendUserMessage(task.actionPhrase, isVoice = true)
-                    }
+        if (tasks.isEmpty()) {
+            // Real empty state — nothing fake
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    tint = TextMuted,
+                    modifier = Modifier.size(42.dp)
                 )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "কোনো স্মার্ট টাস্ক নেই",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "নিচের \"+ New Task\" বাটনে ট্যাপ করে যেকোনো কমান্ড সেভ করুন —\nযেমন: \"টর্চ অন করো\" বা \"ব্যাটারি স্ট্যাটাস বলো\"।\nট্যাপ করলেই AROHI সত্যিকারের কাজটি করবে।",
+                    fontSize = 12.sp,
+                    color = TextMuted,
+                    lineHeight = 18.sp,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+            }
+        } else {
+            // Tasks List
+            LazyColumn(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                items(tasks, key = { it.id }) { task ->
+                    SmartTaskCard(
+                        task = task,
+                        isRunning = runningTaskIds.contains(task.id),
+                        onClick = {
+                            if (!runningTaskIds.contains(task.id)) {
+                                viewModel.runSmartTask(task.id)
+                            }
+                        },
+                        onDelete = { viewModel.deleteSmartTask(task.id) }
+                    )
+                }
             }
         }
 
@@ -237,7 +245,7 @@ fun SmartTasksScreen(
             text = {
                 Column {
                     Text(
-                        "আরোহী এই কমান্ডটি অটোমেট করবে:",
+                        "আরোহী এই কমান্ডটি সত্যিকারভাবে সম্পাদন করবে:",
                         fontSize = 12.sp,
                         color = TextSecondary
                     )
@@ -245,7 +253,7 @@ fun SmartTasksScreen(
                     OutlinedTextField(
                         value = newTaskTitle,
                         onValueChange = { newTaskTitle = it },
-                        placeholder = { Text("যেমন: ব্লুটুথ অন করো", color = TextMuted) },
+                        placeholder = { Text("যেমন: ব্যাটারি কত বলো", color = TextMuted) },
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = CyanPrimary,
@@ -261,16 +269,7 @@ fun SmartTasksScreen(
                 Button(
                     onClick = {
                         if (newTaskTitle.isNotBlank()) {
-                            tasks.add(
-                                SmartTaskItem(
-                                    id = System.currentTimeMillis().toString(),
-                                    title = newTaskTitle,
-                                    status = SmartTaskStatus.PENDING,
-                                    icon = Icons.Default.PlayArrow,
-                                    iconBgColor = VioletBright.copy(alpha = 0.2f),
-                                    iconTint = VioletBright
-                                )
-                            )
+                            viewModel.addSmartTask(newTaskTitle)
                             showAddTaskDialog = false
                         }
                     },
@@ -288,11 +287,27 @@ fun SmartTasksScreen(
     }
 }
 
+private fun statusLabel(status: String, isRunning: Boolean): String = when {
+    isRunning || status == TaskLogRepository.STATUS_EXECUTING -> "Running..."
+    status == TaskLogRepository.STATUS_COMPLETED -> "Completed"
+    status == TaskLogRepository.STATUS_FAILED -> "Failed"
+    else -> "Pending"
+}
+
 @Composable
 fun SmartTaskCard(
-    task: SmartTaskItem,
-    onClick: () -> Unit
+    task: TaskLogEntity,
+    isRunning: Boolean,
+    onClick: () -> Unit,
+    onDelete: () -> Unit
 ) {
+    val statusColor = when {
+        isRunning || task.status == TaskLogRepository.STATUS_EXECUTING -> AmberWarning
+        task.status == TaskLogRepository.STATUS_COMPLETED -> EmeraldSuccess
+        task.status == TaskLogRepository.STATUS_FAILED -> CrimsonError
+        else -> TextMuted
+    }
+
     GlassCard(
         modifier = Modifier
             .fillMaxWidth()
@@ -307,59 +322,93 @@ fun SmartTaskCard(
                 modifier = Modifier
                     .size(42.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(task.iconBgColor)
-                    .border(1.dp, task.iconTint.copy(alpha = 0.3f), RoundedCornerShape(12.dp)),
+                    .background(statusColor.copy(alpha = 0.2f))
+                    .border(1.dp, statusColor.copy(alpha = 0.3f), RoundedCornerShape(12.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = task.icon,
+                    imageVector = when {
+                        isRunning || task.status == TaskLogRepository.STATUS_EXECUTING -> Icons.Default.Sync
+                        task.status == TaskLogRepository.STATUS_COMPLETED -> Icons.Default.Check
+                        task.status == TaskLogRepository.STATUS_FAILED -> Icons.Default.ErrorOutline
+                        else -> Icons.Default.PlayArrow
+                    },
                     contentDescription = null,
-                    tint = task.iconTint,
+                    tint = statusColor,
                     modifier = Modifier.size(20.dp)
                 )
             }
 
             Spacer(modifier = Modifier.width(14.dp))
 
-            // Title & Status
+            // Title, result & status
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = task.title,
+                    text = task.taskName,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White
+                    color = Color.White,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
+                if (!task.resultSummary.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.height(3.dp))
+                    Text(
+                        text = task.resultSummary,
+                        fontSize = 11.sp,
+                        color = TextSecondary,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
                 Spacer(modifier = Modifier.height(3.dp))
                 Text(
-                    text = task.status.label,
+                    text = statusLabel(task.status, isRunning),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,
-                    color = task.status.color
+                    color = statusColor
                 )
             }
 
-            // Status Trailing Check Badge
+            Spacer(modifier = Modifier.width(8.dp))
+
+            // Delete task
+            IconButton(
+                onClick = onDelete,
+                modifier = Modifier.size(30.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Delete Task",
+                    tint = MagentaAccent.copy(alpha = 0.7f),
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+
+            // Status Trailing Badge
             Box(
                 modifier = Modifier
                     .size(24.dp)
                     .clip(CircleShape)
                     .background(
-                        when (task.status) {
-                            SmartTaskStatus.COMPLETED -> EmeraldSuccess
-                            SmartTaskStatus.IN_PROGRESS -> AmberWarning
-                            SmartTaskStatus.PENDING -> Color(0x22FFFFFF)
+                        when {
+                            isRunning || task.status == TaskLogRepository.STATUS_EXECUTING -> AmberWarning
+                            task.status == TaskLogRepository.STATUS_COMPLETED -> EmeraldSuccess
+                            task.status == TaskLogRepository.STATUS_FAILED -> CrimsonError
+                            else -> Color(0x22FFFFFF)
                         }
                     ),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = when (task.status) {
-                        SmartTaskStatus.COMPLETED -> Icons.Default.Check
-                        SmartTaskStatus.IN_PROGRESS -> Icons.Default.Check
-                        SmartTaskStatus.PENDING -> Icons.Default.HourglassEmpty
+                    imageVector = when {
+                        isRunning || task.status == TaskLogRepository.STATUS_EXECUTING -> Icons.Default.Sync
+                        task.status == TaskLogRepository.STATUS_COMPLETED -> Icons.Default.Check
+                        task.status == TaskLogRepository.STATUS_FAILED -> Icons.Default.HourglassEmpty
+                        else -> Icons.Default.HourglassEmpty
                     },
                     contentDescription = null,
-                    tint = if (task.status == SmartTaskStatus.PENDING) TextMuted else Color(0xFF020205),
+                    tint = if (task.status == TaskLogRepository.STATUS_PENDING && !isRunning) TextMuted else Color(0xFF020205),
                     modifier = Modifier.size(14.dp)
                 )
             }

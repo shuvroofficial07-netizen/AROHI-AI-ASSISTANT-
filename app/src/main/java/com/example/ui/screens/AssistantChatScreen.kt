@@ -58,6 +58,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.local.entity.MessageEntity
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import com.example.ui.theme.ArohiDarkSurface
 import com.example.ui.theme.CyanPrimary
 import com.example.ui.theme.EmeraldSuccess
@@ -87,6 +93,29 @@ fun AssistantChatScreen(
 
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
+
+    // Real microphone permission flow — voice input works on a fresh install
+    val context = LocalContext.current
+    var pendingVoiceStart by remember { mutableStateOf(false) }
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted && pendingVoiceStart) {
+            viewModel.startListening()
+        }
+        pendingVoiceStart = false
+    }
+
+    fun startVoiceInput() {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+            == PackageManager.PERMISSION_GRANTED
+        ) {
+            viewModel.startListening()
+        } else {
+            pendingVoiceStart = true
+            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
 
     LaunchedEffect(messages.size, isProcessing) {
         if (messages.isNotEmpty()) {
@@ -342,7 +371,7 @@ fun AssistantChatScreen(
                 val isListening = speechState == SpeechState.LISTENING
                 FilledIconButton(
                     onClick = {
-                        if (isListening) viewModel.stopListening() else viewModel.startListening()
+                        if (isListening) viewModel.stopListening() else startVoiceInput()
                     },
                     colors = IconButtonDefaults.filledIconButtonColors(
                         containerColor = if (isListening) EmeraldSuccess else Color(0x1AFFFFFF)
