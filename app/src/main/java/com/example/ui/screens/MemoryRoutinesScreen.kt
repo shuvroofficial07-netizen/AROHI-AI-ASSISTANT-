@@ -86,6 +86,7 @@ fun MemoryRoutinesScreen(
     var showAddMemoryDialog by remember { mutableStateOf(false) }
     var showAddRoutineDialog by remember { mutableStateOf(false) }
     var memoryBeingEdited by remember { mutableStateOf<MemoryEntity?>(null) }
+    var routineBeingEdited by remember { mutableStateOf<RoutineEntity?>(null) }
     val context = LocalContext.current
 
     // Real JSON export via the Android share sheet
@@ -247,6 +248,7 @@ fun MemoryRoutinesScreen(
                                 routine = routine,
                                 onToggle = { viewModel.toggleRoutine(routine.id, it) },
                                 onRun = { viewModel.runRoutine(routine.id) },
+                                onEdit = { routineBeingEdited = routine },
                                 onDelete = { viewModel.deleteRoutine(routine.id) }
                             )
                         }
@@ -288,6 +290,17 @@ fun MemoryRoutinesScreen(
             onConfirm = { cat, key, value ->
                 viewModel.editMemory(memory.id, cat, key, value)
                 memoryBeingEdited = null
+            }
+        )
+    }
+
+    routineBeingEdited?.let { routine ->
+        EditRoutineDialog(
+            routine = routine,
+            onDismiss = { routineBeingEdited = null },
+            onConfirm = { name, desc, trigger, actions ->
+                viewModel.editRoutine(routine.id, name, desc, trigger, actions)
+                routineBeingEdited = null
             }
         )
     }
@@ -400,6 +413,7 @@ fun RoutineItemCard(
     routine: RoutineEntity,
     onToggle: (Boolean) -> Unit,
     onRun: () -> Unit,
+    onEdit: () -> Unit = {},
     onDelete: () -> Unit
 ) {
     GlassCard(modifier = Modifier.fillMaxWidth()) {
@@ -455,8 +469,17 @@ fun RoutineItemCard(
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
             ) {
+                IconButton(onClick = onEdit) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = "Edit routine",
+                        tint = CyanPrimary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
                 Button(
                     onClick = onRun,
                     colors = ButtonDefaults.buttonColors(containerColor = ArohiDarkSurface),
@@ -631,6 +654,66 @@ fun EditMemoryDialog(
                 onClick = {
                     if (key.isNotBlank() && value.isNotBlank()) {
                         onConfirm(category, key, value)
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = CyanPrimary)
+            ) {
+                Text("সেভ করুন", color = ArohiDarkSurface)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("বাতিল", color = TextMuted)
+            }
+        }
+    )
+}
+
+@Composable
+fun EditRoutineDialog(
+    routine: RoutineEntity,
+    onDismiss: () -> Unit,
+    onConfirm: (name: String, desc: String, trigger: String, actions: String) -> Unit
+) {
+    var name by remember(routine.id) { mutableStateOf(routine.name) }
+    var desc by remember(routine.id) { mutableStateOf(routine.description) }
+    var trigger by remember(routine.id) { mutableStateOf(routine.triggerPhrase) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = ArohiSurfaceCard,
+        title = { Text("রুটিন সম্পাদনা (Edit Routine)", color = CyanPrimary) },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("রুটিনের নাম (Name)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = desc,
+                    onValueChange = { desc = it },
+                    label = { Text("সংক্ষিপ্ত বিবরণ (Description)") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = trigger,
+                    onValueChange = { trigger = it },
+                    label = { Text("ভয়েস ট্রিগার বাক্য (Voice Trigger)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (name.isNotBlank() && trigger.isNotBlank()) {
+                        onConfirm(name, desc, trigger, routine.actionsJson)
                     }
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = CyanPrimary)

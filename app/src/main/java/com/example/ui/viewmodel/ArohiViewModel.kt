@@ -480,6 +480,12 @@ class ArohiViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun editRoutine(id: Int, name: String, description: String, trigger: String, actionsJson: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            app.routineRepository.updateRoutine(id, name, description, trigger, actionsJson, "routine")
+        }
+    }
+
     /** Preset routines execute REAL action lists via the local engine. */
     fun addPresetRoutine(preset: String) {
         viewModelScope.launch(Dispatchers.IO) {

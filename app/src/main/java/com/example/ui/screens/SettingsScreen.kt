@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Refresh
@@ -266,6 +267,59 @@ fun SettingsScreen(
                         )
                     )
                 }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // Notifications, Calls & Behavior (real persisted toggles)
+        val callerAnnouncement by viewModel.callerAnnouncementFlow.collectAsState()
+        val notificationAnnouncement by viewModel.notificationAnnouncementFlow.collectAsState()
+        val proactiveEnabled by viewModel.proactiveEnabledFlow.collectAsState()
+        val silenceMode by viewModel.silenceModeFlow.collectAsState()
+
+        GlassCard(modifier = Modifier.fillMaxWidth()) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.NotificationsActive,
+                        contentDescription = null,
+                        tint = EmeraldSuccess,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "নোটিফিকেশন, কল ও আচরণ",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+
+                ToggleRow(
+                    title = "Notification announcements",
+                    subtitle = "ক্যাপচার করা নোটিফিকেশন পড়ে শোনাবে",
+                    checked = notificationAnnouncement,
+                    onCheckedChange = { viewModel.setNotificationAnnouncement(it) }
+                )
+                ToggleRow(
+                    title = "Caller announcements",
+                    subtitle = "ইনকামিং কলের নাম পড়ে শোনাবে",
+                    checked = callerAnnouncement,
+                    onCheckedChange = { viewModel.setCallerAnnouncement(it) }
+                )
+                ToggleRow(
+                    title = "Proactive conversation",
+                    subtitle = "নিজে থেকে কথা বলা (প্রয়োজনে)",
+                    checked = proactiveEnabled,
+                    onCheckedChange = { viewModel.setProactiveEnabled(it) }
+                )
+                ToggleRow(
+                    title = "Silence mode",
+                    subtitle = "কণ্ঠস্বর সম্পূর্ণ বন্ধ (\"চুপ করো\" সমর্থিত)",
+                    checked = silenceMode,
+                    onCheckedChange = { viewModel.setSilenceMode(it) }
+                )
             }
         }
 
@@ -680,3 +734,42 @@ private fun SettingsLinkRow(
     }
 }
 
+@Composable
+private fun ToggleRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color(0x0DFFFFFF))
+            .border(1.dp, Color(0x1AFFFFFF), RoundedCornerShape(12.dp))
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Color.White
+            )
+            Text(
+                text = subtitle,
+                fontSize = 10.sp,
+                color = TextMuted
+            )
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = CyanPrimary,
+                checkedTrackColor = CyanPrimary.copy(alpha = 0.3f)
+            )
+        )
+    }
+}
