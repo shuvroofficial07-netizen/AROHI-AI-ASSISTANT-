@@ -98,57 +98,6 @@ object ToolRegistry {
                 )
             ),
             FunctionDeclaration(
-                name = "open_settings",
-                description = "Opens a real Android settings panel: wifi, bluetooth, display, sound, battery, notification, accessibility, apps, storage, device_info, location or security",
-                parameters = FunctionParameters(
-                    type = "OBJECT",
-                    properties = mapOf(
-                        "panel" to PropertySchema(type = "STRING", description = "Settings panel key, e.g. 'wifi', 'bluetooth', 'display', 'sound', 'battery', 'notification', 'accessibility', 'apps', 'storage', 'device_info', 'location', 'security'")
-                    ),
-                    required = listOf("panel")
-                )
-            ),
-            FunctionDeclaration(
-                name = "open_url",
-                description = "Opens a web URL in the browser",
-                parameters = FunctionParameters(
-                    type = "OBJECT",
-                    properties = mapOf(
-                        "url" to PropertySchema(type = "STRING", description = "The full URL to open")
-                    ),
-                    required = listOf("url")
-                )
-            ),
-            FunctionDeclaration(
-                name = "media_control",
-                description = "Controls media playback with real media key events: play, pause, next, previous, stop",
-                parameters = FunctionParameters(
-                    type = "OBJECT",
-                    properties = mapOf(
-                        "action" to PropertySchema(type = "STRING", description = "One of: play, pause, next, previous, stop")
-                    ),
-                    required = listOf("action")
-                )
-            ),
-            FunctionDeclaration(
-                name = "get_current_app",
-                description = "Reads the current foreground application label (requires Usage Access permission; reports honestly when unavailable)",
-                parameters = FunctionParameters(
-                    type = "OBJECT",
-                    properties = emptyMap(),
-                    required = emptyList()
-                )
-            ),
-            FunctionDeclaration(
-                name = "check_call_state",
-                description = "Reads the real current phone call state (ringing / offhook / idle) and caller identity from TelephonyManager",
-                parameters = FunctionParameters(
-                    type = "OBJECT",
-                    properties = emptyMap(),
-                    required = emptyList()
-                )
-            ),
-            FunctionDeclaration(
                 name = "inspect_screen",
                 description = "Uses Accessibility Service to read the UI hierarchy and visible texts on the current device screen",
                 parameters = FunctionParameters(

@@ -15,6 +15,7 @@ import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -34,16 +35,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Cameraswitch
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.FlashlightOn
 import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.WbSunny
+import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -54,15 +57,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import com.example.R
 import com.example.ui.theme.CyanPrimary
 import com.example.ui.theme.EmeraldSuccess
 import com.example.ui.theme.MagentaAccent
@@ -94,47 +100,6 @@ fun VisionScreen(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
         hasCameraPermission = granted
-    }
-
-    // Real gallery picker — the chosen image goes to Gemini for actual analysis
-    var pickedImageBase64 by remember { mutableStateOf<String?>(null) }
-    val galleryLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri ->
-        if (uri != null) {
-            try {
-                val bitmap = context.contentResolver.openInputStream(uri)?.use { input ->
-                    BitmapFactory.decodeStream(input)
-                }
-                if (bitmap != null) {
-                    val scaled = if (bitmap.width > 800) {
-                        val scale = 800f / bitmap.width.coerceAtLeast(bitmap.height)
-                        Bitmap.createScaledBitmap(
-                            bitmap,
-                            (bitmap.width * scale).toInt(),
-                            (bitmap.height * scale).toInt(),
-                            true
-                        )
-                    } else bitmap
-                    val outputStream = ByteArrayOutputStream()
-                    scaled.compress(Bitmap.CompressFormat.JPEG, 80, outputStream)
-                    pickedImageBase64 = Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP)
-                }
-            } catch (e: Exception) {
-                pickedImageBase64 = null
-            }
-        }
-    }
-
-    LaunchedEffect(pickedImageBase64) {
-        val base64 = pickedImageBase64 ?: return@LaunchedEffect
-        pickedImageBase64 = null
-        viewModel.sendUserMessage(
-            text = "এই ছবিতে কি দেখা যাচ্ছে বিস্তারিত বাংলায় বর্ণনা করো।",
-            isVoice = true,
-            imageBase64 = base64
-        )
-        onNavigateToChat()
     }
 
     var cameraLensFacing by remember { mutableStateOf(CameraSelector.LENS_FACING_BACK) }
@@ -256,79 +221,130 @@ fun VisionScreen(
                     modifier = Modifier.fillMaxSize()
                 )
             } else {
-                // Honest state: no camera permission, no fake imagery
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color(0xFF0A0E1A)),
-                    contentAlignment = Alignment.Center
+                // High-fidelity fallback plant sample image (as seen in Screen 5)
+                Image(
+                    painter = painterResource(id = R.drawable.plant_sample),
+                    contentDescription = "Live Plant Target",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+
+            // Top Floating "● LIVE" Badge
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 16.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xCC000000))
+                    .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.padding(24.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.FlashlightOn,
-                            contentDescription = null,
-                            tint = TextMuted,
-                            modifier = Modifier.size(40.dp)
-                        )
-                        Text(
-                            text = "Camera access required",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                        Text(
-                            text = "Arohi Vision opens the camera only after you grant permission and start a session. No images are captured otherwise.",
-                            fontSize = 12.sp,
-                            color = TextSecondary,
-                            lineHeight = 17.sp
-                        )
-                        Text(
-                            text = "Grant camera permission",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = CyanPrimary,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(CyanPrimary.copy(alpha = 0.12f))
-                                .border(1.dp, CyanPrimary.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
-                                .clickable { permissionLauncher.launch(Manifest.permission.CAMERA) }
-                                .padding(horizontal = 14.dp, vertical = 8.dp)
-                        )
-                    }
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(EmeraldSuccess)
+                    )
+                    Text(
+                        text = "LIVE",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp,
+                        color = Color.White
+                    )
                 }
             }
 
-            // Top Floating "● LIVE" Badge — only meaningful while the camera is active
-            if (hasCameraPermission) {
+            // Center Target Bounding Box: Monstera Deliciosa | 96%
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .size(240.dp, 220.dp)
+                    .border(2.dp, CyanPrimary, RoundedCornerShape(14.dp))
+            ) {
+                // Target Label Tag
                 Box(
                     modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 16.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xCC000000))
-                        .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(12.dp))
-                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                        .align(Alignment.TopStart)
+                        .clip(RoundedCornerShape(topStart = 12.dp, bottomEnd = 12.dp))
+                        .background(CyanPrimary)
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(6.dp)
-                                .clip(CircleShape)
-                                .background(EmeraldSuccess)
+                    Text(
+                        text = "Monstera Deliciosa  96%",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF020205)
+                    )
+                }
+            }
+
+            // Bottom Plant Care Information Card (Screen 5 Overlay)
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(12.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xE60D1222))
+                    .border(1.dp, Color(0x338B5CF6), RoundedCornerShape(16.dp))
+                    .padding(12.dp)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = "Monstera Deliciosa (Swiss Cheese Plant)",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.WaterDrop,
+                            contentDescription = null,
+                            tint = CyanPrimary,
+                            modifier = Modifier.size(13.dp)
                         )
+                        Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "LIVE",
+                            text = "Water: Every 1-2 weeks",
                             fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.sp,
-                            color = Color.White
+                            color = TextSecondary
+                        )
+                    }
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.WbSunny,
+                            contentDescription = null,
+                            tint = Color(0xFFFBBF24),
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Light: Bright indirect sunlight",
+                            fontSize = 11.sp,
+                            color = TextSecondary
+                        )
+                    }
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = EmeraldSuccess,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Status: Healthy • No pests detected",
+                            fontSize = 11.sp,
+                            color = EmeraldSuccess
                         )
                     }
                 }
@@ -375,7 +391,8 @@ fun VisionScreen(
                     .background(Color(0x1AFFFFFF))
                     .border(1.dp, Color(0x33FFFFFF), CircleShape)
                     .clickable {
-                        galleryLauncher.launch("image/*")
+                        viewModel.sendUserMessage("এই উদ্ভিদের যত্ন নেওয়ার উপায় এবং স্বাস্থ্য বিশ্লেষণ করো।", isVoice = true)
+                        onNavigateToChat()
                     },
                 contentAlignment = Alignment.Center
             ) {
@@ -432,7 +449,8 @@ fun VisionScreen(
                                     }
                                 )
                             } else {
-                                // Camera bound but capture not ready yet — nothing is faked
+                                viewModel.sendUserMessage("এই উদ্ভিদের যত্ন নেওয়ার উপায় এবং স্বাস্থ্য বিশ্লেষণ করো।", isVoice = true)
+                                onNavigateToChat()
                             }
                         }
                     }

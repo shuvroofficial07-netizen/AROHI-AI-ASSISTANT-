@@ -17,20 +17,10 @@ android {
     applicationId = "com.aistudio.arohi.shuvro"
     minSdk = 24
     targetSdk = 36
-    versionCode = 14000
-    versionName = "14.0.0"
+    versionCode = 13990
+    versionName = "13.99.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-
-    // AROHI AI ASSISTANT — NEXT GENERATION
-    // Build-time Gemini key (optional). Users normally configure the key inside
-    // the app (stored in private app preferences). This field must exist because
-    // SettingsRepository falls back to it — never hard-code a real key here.
-    buildConfigField(
-      "String",
-      "GEMINI_API_KEY",
-      "\"${System.getenv("GEMINI_API_KEY") ?: ""}\""
-    )
   }
 
     signingConfigs {

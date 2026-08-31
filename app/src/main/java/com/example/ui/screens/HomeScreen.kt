@@ -1,8 +1,17 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,17 +31,18 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.BatteryChargingFull
-import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PhoneAndroid
-import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.RemoveRedEye
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -47,32 +57,26 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
-import com.example.engine.ArohiEmotion
+import com.example.R
 import com.example.service.DiagnosticStatusLevel
-import com.example.ui.components.GlowingArohiAvatar
-import com.example.ui.components.VoiceWaveform
 import com.example.ui.theme.CyanPrimary
 import com.example.ui.theme.EmeraldSuccess
 import com.example.ui.theme.MagentaAccent
 import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextSecondary
 import com.example.ui.theme.VioletBright
+import com.example.ui.theme.VioletSecondary
 import com.example.ui.viewmodel.ArohiViewModel
 import com.example.voice.SpeechState
 
-/**
- * MAIN HOME — next-generation AROHI operating layer.
- * Every status, meter and animation on this screen is driven by REAL
- * application state: diagnostics, telemetry, mic RMS, TTS and the brain.
- */
 @Composable
 fun HomeScreen(
     viewModel: ArohiViewModel,
@@ -85,23 +89,11 @@ fun HomeScreen(
     onNavigateToMemory: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
     onNavigateToDiagnostics: () -> Unit = {},
-    onNavigateToApps: () -> Unit = {},
-    onNavigateToCalls: () -> Unit = {},
-    onNavigateToBrain: () -> Unit = {},
-    onNavigateToAbout: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val speechState by viewModel.speechState.collectAsState()
     val isSpeaking by viewModel.isSpeaking.collectAsState()
     val telemetry by viewModel.telemetry.collectAsState()
-    val emotion by viewModel.emotion.collectAsState()
-    val rmsLevel by viewModel.rmsLevel.collectAsState()
-    val report by viewModel.diagnosticReport.collectAsState()
-    val diagnostics by viewModel.diagnostics.collectAsState()
-    val unreadCount by viewModel.unreadNotifCount.collectAsState()
-    val isProcessing by viewModel.isProcessing.collectAsState()
-    val languageCode by viewModel.languageCodeFlow.collectAsState()
-
     val isListening = speechState == SpeechState.LISTENING
 
     // Android 13+ requires POST_NOTIFICATIONS for the persistent foreground service notification
@@ -110,22 +102,16 @@ fun HomeScreen(
         ActivityResultContracts.RequestPermission()
     ) { viewModel.startBackgroundOperatingService() }
 
-    val isBgActive = diagnostics.isBackgroundServiceActive
-
-    // REAL system status — never faked
-    val (systemStatusColor, systemStatusText) = when (report.overallStatus) {
-        DiagnosticStatusLevel.READY -> EmeraldSuccess to "ONLINE"
-        DiagnosticStatusLevel.LIMITED -> Color(0xFFF59E0B) to "LIMITED"
-        DiagnosticStatusLevel.ERROR -> MagentaAccent to "OFFLINE"
-    }
-
-    // The avatar follows the real assistant state, not random animation
-    val avatarEmotion = when {
-        isListening -> ArohiEmotion.LISTENING
-        isProcessing -> ArohiEmotion.THINKING
-        isSpeaking -> ArohiEmotion.SPEAKING
-        else -> emotion
-    }
+    val infiniteTransition = rememberInfiniteTransition(label = "avatar_pulse")
+    val pulseGlow by infiniteTransition.animateFloat(
+        initialValue = 0.4f,
+        targetValue = 0.85f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1600, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "avatar_glow"
+    )
 
     Column(
         modifier = modifier
@@ -135,7 +121,7 @@ fun HomeScreen(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // 1. Header: branding + real system status
+        // 1. Header with "A" Icon, "Arohi AI Assistant", "by Shù Vrô", and Scanner Icon
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -145,12 +131,9 @@ fun HomeScreen(
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier
-                    .clip(RoundedCornerShape(999.dp))
-                    .clickable(onClick = onNavigateToAbout)
-                    .padding(2.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                // Circular Logo Badge with "A"
                 Box(
                     modifier = Modifier
                         .size(38.dp)
@@ -178,16 +161,17 @@ fun HomeScreen(
                     )
                 }
 
+                // App Title & Author
                 Column {
                     Text(
                         text = "AROHI AI ASSISTANT",
-                        fontSize = 15.sp,
+                        fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
                     )
                     Text(
                         text = "by Shù Vrô",
-                        fontSize = 12.sp,
+                        fontSize = 13.sp,
                         fontStyle = FontStyle.Italic,
                         fontWeight = FontWeight.Medium,
                         color = MagentaAccent
@@ -195,74 +179,120 @@ fun HomeScreen(
                 }
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                // Real ONLINE / LIMITED / OFFLINE pill
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(systemStatusColor.copy(alpha = 0.13f))
-                        .border(1.dp, systemStatusColor.copy(alpha = 0.45f), RoundedCornerShape(999.dp))
-                        .clickable { onNavigateToDiagnostics() }
-                        .padding(horizontal = 9.dp, vertical = 5.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(7.dp)
-                            .drawBehind {
-                                drawCircle(
-                                    color = systemStatusColor.copy(alpha = 0.45f),
-                                    radius = size.minDimension * 1.4f
-                                )
-                            }
-                            .clip(CircleShape)
-                            .background(systemStatusColor)
-                    )
-                    Text(
-                        text = systemStatusText,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace,
-                        color = systemStatusColor
-                    )
-                }
-
-                // Vision shortcut
-                IconButton(
-                    onClick = onNavigateToVision,
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(Color(0x14FFFFFF))
-                        .border(1.dp, Color(0x22FFFFFF), CircleShape)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.QrCodeScanner,
-                        contentDescription = "Arohi Vision",
-                        tint = Color.White,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
+            // Scanner / Reticle Action Icon
+            IconButton(
+                onClick = onNavigateToVision,
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(Color(0x14FFFFFF))
+                    .border(1.dp, Color(0x22FFFFFF), CircleShape)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.QrCodeScanner,
+                    contentDescription = "Scan",
+                    tint = Color.White,
+                    modifier = Modifier.size(18.dp)
+                )
             }
         }
 
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
-        // 2. Central AROHI AI Core — animation follows the REAL state
+        val report by viewModel.diagnosticReport.collectAsState()
+        val isBgActive = report.items.find { it.id == "background_service" }?.status == DiagnosticStatusLevel.READY
+
+        // 2. Status & Background Assistant Real Switch Bar
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 2.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Live Diagnostics Status Badge (Clickable to open deep diagnostics)
+            val (statusColor, statusText) = when (report.overallStatus) {
+                DiagnosticStatusLevel.READY -> Pair(EmeraldSuccess, "SYSTEM: READY")
+                DiagnosticStatusLevel.LIMITED -> Pair(Color(0xFFF59E0B), "SYSTEM: LIMITED")
+                DiagnosticStatusLevel.ERROR -> Pair(MagentaAccent, "SYSTEM: ERROR")
+            }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(statusColor.copy(alpha = 0.12f))
+                    .border(1.dp, statusColor.copy(alpha = 0.4f), RoundedCornerShape(999.dp))
+                    .clickable { onNavigateToDiagnostics() }
+                    .padding(horizontal = 10.dp, vertical = 5.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(7.dp)
+                        .clip(CircleShape)
+                        .background(statusColor)
+                )
+                Text(
+                    text = statusText,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    color = statusColor
+                )
+            }
+
+            // Real Background Assistant Switch Chip
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(if (isBgActive) EmeraldSuccess.copy(alpha = 0.15f) else Color(0x1AFFFFFF))
+                    .border(
+                        1.dp,
+                        if (isBgActive) EmeraldSuccess.copy(alpha = 0.5f) else Color(0x22FFFFFF),
+                        RoundedCornerShape(999.dp)
+                    )
+                    .clickable {
+                        if (isBgActive) {
+                            viewModel.stopBackgroundOperatingService()
+                        } else if (Build.VERSION.SDK_INT < 33 ||
+                            ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS)
+                            == android.content.pm.PackageManager.PERMISSION_GRANTED
+                        ) {
+                            viewModel.startBackgroundOperatingService()
+                        } else {
+                            notifPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                    }
+                    .padding(horizontal = 10.dp, vertical = 5.dp)
+            ) {
+                val bgStateColor = if (isBgActive) EmeraldSuccess else Color(0xFFEF4444)
+                val bgStateLabel = if (isBgActive) "BG: RUNNING" else "BG: STOPPED"
+                Box(
+                    modifier = Modifier
+                        .size(7.dp)
+                        .clip(CircleShape)
+                        .background(bgStateColor)
+                )
+                Text(
+                    text = bgStateLabel,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    color = if (isBgActive) EmeraldSuccess else Color(0xFFEF4444)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // 3. Cyberpunk Anime AI Assistant Hero Avatar
         Box(
             modifier = Modifier
-                .size(200.dp)
-                .testTag("home_avatar_image"),
-            contentAlignment = Alignment.Center
-        ) {
-            GlowingArohiAvatar(
-                emotion = avatarEmotion,
-                speechState = speechState,
-                rmsLevel = rmsLevel,
-                isSpeaking = isSpeaking,
-                size = 200.dp,
-                onClick = {
+                .size(210.dp)
+                .clickable {
                     if (isSpeaking) {
                         viewModel.silenceAssistant()
                     } else if (isListening) {
@@ -271,207 +301,89 @@ fun HomeScreen(
                         viewModel.startListening()
                     }
                 }
-            )
-        }
-
-        Spacer(modifier = Modifier.height(6.dp))
-
-        // Real assistant state label
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            modifier = Modifier
-                .clip(RoundedCornerShape(999.dp))
-                .background(avatarEmotion.glowColor.copy(alpha = 0.12f))
-                .border(1.dp, avatarEmotion.glowColor.copy(alpha = 0.35f), RoundedCornerShape(999.dp))
-                .clickable { onNavigateToBrain() }
-                .padding(horizontal = 12.dp, vertical = 5.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(7.dp)
-                    .clip(CircleShape)
-                    .background(avatarEmotion.glowColor)
-            )
-            Text(
-                text = avatarEmotion.bengaliLabel,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                color = avatarEmotion.glowColor
-            )
-        }
-
-        Spacer(modifier = Modifier.height(14.dp))
-
-        // 3. Real-time voice interface: waveform driven by actual mic RMS
-        VoiceWaveform(
-            isActive = isListening || isSpeaking,
-            rmsLevel = if (isListening) rmsLevel else if (isSpeaking) 0.55f else 0f
-        )
-
-        // Mic state + language line
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(
-                text = if (isListening) "🎙 Listening…" else "🎙 Microphone: ${if (diagnostics.hasMicPermission) "ready" else "permission required"}",
-                fontSize = 10.sp,
-                fontFamily = FontFamily.Monospace,
-                color = if (isListening) EmeraldSuccess else TextMuted
-            )
-            Text(
-                text = "Lang: $languageCode",
-                fontSize = 10.sp,
-                fontFamily = FontFamily.Monospace,
-                color = TextMuted
-            )
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        // 4. TALK TO AROHI — the real voice pipeline
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(22.dp))
-                .background(
-                    Brush.horizontalGradient(
-                        listOf(
-                            CyanPrimary.copy(alpha = 0.28f),
-                            VioletBright.copy(alpha = 0.28f),
-                            MagentaAccent.copy(alpha = 0.28f)
-                        )
-                    )
-                )
-                .border(
-                    1.dp,
-                    if (isListening) EmeraldSuccess else Color(0x338B5CF6),
-                    RoundedCornerShape(22.dp)
-                )
-                .clickable {
-                    if (isListening) viewModel.stopListening() else viewModel.startListening()
-                }
-                .padding(vertical = 14.dp),
+                .testTag("home_avatar_image"),
             contentAlignment = Alignment.Center
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            // Glowing circular backdrop
+            Box(
+                modifier = Modifier
+                    .size(200.dp)
+                    .drawBehind {
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(
+                                    VioletBright.copy(alpha = 0.4f * pulseGlow),
+                                    CyanPrimary.copy(alpha = 0.25f * pulseGlow),
+                                    Color.Transparent
+                                )
+                            ),
+                            radius = size.minDimension / 1.5f
+                        )
+                    }
+            )
+
+            // Outer Neon Gradient Border Ring
+            Box(
+                modifier = Modifier
+                    .size(190.dp)
+                    .clip(CircleShape)
+                    .background(
+                        Brush.sweepGradient(
+                            colors = listOf(
+                                CyanPrimary,
+                                VioletBright,
+                                MagentaAccent,
+                                CyanPrimary
+                            )
+                        )
+                    )
+                    .padding(3.dp)
+                    .clip(CircleShape)
             ) {
-                Icon(
-                    imageVector = Icons.Default.Mic,
-                    contentDescription = "Talk",
-                    tint = if (isListening) EmeraldSuccess else Color.White,
-                    modifier = Modifier.size(22.dp)
-                )
-                Text(
-                    text = if (isListening) "LISTENING — TAP TO STOP" else "TALK TO AROHI",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = 1.sp,
-                    color = Color.White
+                Image(
+                    painter = painterResource(id = R.drawable.arohi_avatar),
+                    contentDescription = "Arohi AI Avatar",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
                 )
             }
         }
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // 5. BACKGROUND ASSISTANT — real subsystem states
-        val bgStatusColor = when {
-            isBgActive -> EmeraldSuccess
-            diagnostics.isNotificationListenerActive || diagnostics.isAccessibilityActive -> Color(0xFFF59E0B)
-            else -> MagentaAccent
-        }
-        val bgStatusLabel = when {
-            isBgActive -> "RUNNING"
-            diagnostics.isNotificationListenerActive || diagnostics.isAccessibilityActive -> "LIMITED"
-            else -> "STOPPED"
-        }
-
-        Column(
+        // 4. Bengali Speech Bubble Card
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(16.dp))
                 .background(
                     Brush.verticalGradient(
-                        colors = listOf(Color(0x181E293B), Color(0x220D1222))
+                        colors = listOf(
+                            Color(0x1A251846),
+                            Color(0x22131A33)
+                        )
                     )
                 )
-                .border(1.dp, bgStatusColor.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
-                .padding(12.dp)
+                .border(1.dp, Color(0x338B5CF6), RoundedCornerShape(16.dp))
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            contentAlignment = Alignment.Center
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        text = "BACKGROUND ASSISTANT",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.5.sp,
-                        color = TextSecondary
-                    )
-                    Text(
-                        text = bgStatusLabel,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace,
-                        color = bgStatusColor
-                    )
-                }
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(if (isBgActive) EmeraldSuccess.copy(alpha = 0.16f) else Color(0x1AFFFFFF))
-                        .border(
-                            1.dp,
-                            if (isBgActive) EmeraldSuccess.copy(alpha = 0.5f) else Color(0x22FFFFFF),
-                            RoundedCornerShape(999.dp)
-                        )
-                        .clickable {
-                            if (isBgActive) {
-                                viewModel.stopBackgroundOperatingService()
-                            } else if (Build.VERSION.SDK_INT < 33 ||
-                                ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS)
-                                == android.content.pm.PackageManager.PERMISSION_GRANTED
-                            ) {
-                                viewModel.startBackgroundOperatingService()
-                            } else {
-                                notifPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-                            }
-                        }
-                        .padding(horizontal = 14.dp, vertical = 7.dp)
-                ) {
-                    Text(
-                        text = if (isBgActive) "TURN OFF" else "TURN ON",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace,
-                        color = if (isBgActive) EmeraldSuccess else Color.White
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            SubsystemRow("Voice engine", diagnostics.hasMicPermission)
-            SubsystemRow("Notification listener", diagnostics.isNotificationListenerActive)
-            SubsystemRow("Gemini connection", diagnostics.isGeminiConnected)
-            SubsystemRow("Background service", isBgActive)
-            SubsystemRow("Accessibility", diagnostics.isAccessibilityActive)
-            SubsystemRow("Overlay indicator", com.example.service.ArohiOverlayService.canDrawOverlays(context))
+            Text(
+                text = "আমি প্রস্তুত, বস! বলুন, কী করতে পারি আপনার জন্য?",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color.White
+            )
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        // 6. Quick actions grid
+        // 5. Quick Actions Grid Cards
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            // Row 1: Tasks, System Dashboard, Vision, Notifications
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -484,7 +396,7 @@ fun HomeScreen(
                     modifier = Modifier.weight(1f)
                 )
                 ActionGridCard(
-                    title = "Device",
+                    title = "System",
                     icon = Icons.Default.PhoneAndroid,
                     glowColor = CyanPrimary,
                     onClick = onNavigateToDashboard,
@@ -498,57 +410,23 @@ fun HomeScreen(
                     modifier = Modifier.weight(1f)
                 )
                 ActionGridCard(
-                    title = "Inbox",
+                    title = "Notifs",
                     icon = Icons.Default.Notifications,
                     glowColor = EmeraldSuccess,
                     onClick = onNavigateToNotifications,
-                    badgeCount = unreadCount,
-                    modifier = Modifier.weight(1f)
-                )
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                ActionGridCard(
-                    title = "Apps",
-                    icon = Icons.Default.Apps,
-                    glowColor = VioletBright,
-                    onClick = onNavigateToApps,
-                    modifier = Modifier.weight(1f)
-                )
-                ActionGridCard(
-                    title = "Calls",
-                    icon = Icons.Default.Call,
-                    glowColor = EmeraldSuccess,
-                    onClick = onNavigateToCalls,
-                    modifier = Modifier.weight(1f)
-                )
-                ActionGridCard(
-                    title = "Brain",
-                    icon = Icons.Default.Psychology,
-                    glowColor = CyanPrimary,
-                    onClick = onNavigateToBrain,
-                    modifier = Modifier.weight(1f)
-                )
-                ActionGridCard(
-                    title = "Memory",
-                    icon = Icons.Default.Memory,
-                    glowColor = MagentaAccent,
-                    onClick = onNavigateToMemory,
                     modifier = Modifier.weight(1f)
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        // 7. Live telemetry mini cards (real device readings)
+        // 6. Status Overview Cards (Battery, Storage, RAM)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            // Battery Status Mini Card
             HomeStatusMiniCard(
                 title = "Battery",
                 value = "${telemetry.batteryPercent}%",
@@ -557,10 +435,9 @@ fun HomeScreen(
                 modifier = Modifier.weight(1f)
             )
 
+            // Storage Status Mini Card
             val totalStorage = telemetry.totalStorageGb.toInt().coerceAtLeast(1)
-            val storagePct = if (telemetry.totalStorageGb > 0) {
-                (((telemetry.totalStorageGb - telemetry.freeStorageGb) / telemetry.totalStorageGb) * 100).toInt()
-            } else 0
+            val storagePct = (((telemetry.totalStorageGb - telemetry.freeStorageGb) / totalStorage) * 100).toInt()
             HomeStatusMiniCard(
                 title = "Storage",
                 value = "$storagePct%",
@@ -569,10 +446,9 @@ fun HomeScreen(
                 modifier = Modifier.weight(1f)
             )
 
+            // RAM Status Mini Card
             val totalRam = telemetry.totalRamMb.coerceAtLeast(1)
-            val ramPct = if (telemetry.totalRamMb > 0) {
-                (((telemetry.totalRamMb - telemetry.freeRamMb).toFloat() / totalRam) * 100).toInt()
-            } else 0
+            val ramPct = (((telemetry.totalRamMb - telemetry.freeRamMb).toFloat() / totalRam) * 100).toInt()
             HomeStatusMiniCard(
                 title = "RAM",
                 value = "$ramPct%",
@@ -582,76 +458,82 @@ fun HomeScreen(
             )
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        // 8. Routine quick trigger + settings strip
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        // 7. Interactive Voice Input Pill Bar (Bottom interactive voice activator)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp))
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0x221E293B),
+                            Color(0x330D1222)
+                        )
+                    )
+                )
+                .border(1.dp, Color(0x338B5CF6), RoundedCornerShape(20.dp))
+                .clickable {
+                    if (isListening) {
+                        viewModel.stopListening()
+                    } else {
+                        viewModel.startListening()
+                    }
+                }
+                .padding(horizontal = 16.dp, vertical = 10.dp)
         ) {
-            HomeLinkChip("Routines", onClick = onNavigateToRoutines, modifier = Modifier.weight(1f))
-            HomeLinkChip("Settings", onClick = onNavigateToSettings, modifier = Modifier.weight(1f))
-            HomeLinkChip("Diagnostics", onClick = onNavigateToDiagnostics, modifier = Modifier.weight(1f))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(if (isListening) MagentaAccent.copy(alpha = 0.25f) else CyanPrimary.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Mic,
+                            contentDescription = "Voice Input",
+                            tint = if (isListening) MagentaAccent else CyanPrimary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    Text(
+                        text = if (isListening) "বলুন, আমি শুনছি..." else "Tap to speak with Arohi...",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = if (isListening) MagentaAccent else TextSecondary
+                    )
+                }
+
+                // Mini sound wave indicators
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    listOf(10.dp, 16.dp, 12.dp, 20.dp, 8.dp).forEach { h ->
+                        Box(
+                            modifier = Modifier
+                                .width(3.dp)
+                                .height(if (isListening || isSpeaking) h else 6.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(CyanPrimary)
+                        )
+                    }
+                }
+            }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
-    }
-}
-
-@Composable
-private fun SubsystemRow(label: String, active: Boolean) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 3.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = label,
-            fontSize = 11.sp,
-            color = TextSecondary
-        )
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier
-                    .size(6.dp)
-                    .clip(CircleShape)
-                    .background(if (active) EmeraldSuccess else MagentaAccent)
-            )
-            Spacer(modifier = Modifier.width(5.dp))
-            Text(
-                text = if (active) "READY" else "LIMITED",
-                fontSize = 9.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace,
-                color = if (active) EmeraldSuccess else TextMuted
-            )
-        }
-    }
-}
-
-@Composable
-private fun HomeLinkChip(
-    label: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(999.dp))
-            .background(Color(0x0DFFFFFF))
-            .border(1.dp, Color(0x1AFFFFFF), RoundedCornerShape(999.dp))
-            .clickable(onClick = onClick)
-            .padding(vertical = 9.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = label,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = CyanPrimary
-        )
     }
 }
 
@@ -715,8 +597,7 @@ fun ActionGridCard(
     icon: ImageVector,
     glowColor: Color,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    badgeCount: Int = 0
+    modifier: Modifier = Modifier
 ) {
     Box(
         modifier = modifier
@@ -739,39 +620,20 @@ fun ActionGridCard(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Box {
-                Box(
-                    modifier = Modifier
-                        .size(34.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(glowColor.copy(alpha = 0.18f))
-                        .border(1.dp, glowColor.copy(alpha = 0.35f), RoundedCornerShape(10.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = title,
-                        tint = glowColor,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-                if (badgeCount > 0) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .size(14.dp)
-                            .clip(CircleShape)
-                            .background(MagentaAccent),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = if (badgeCount > 9) "9+" else "$badgeCount",
-                            fontSize = 7.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                    }
-                }
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(glowColor.copy(alpha = 0.18f))
+                    .border(1.dp, glowColor.copy(alpha = 0.35f), RoundedCornerShape(10.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = title,
+                    tint = glowColor,
+                    modifier = Modifier.size(18.dp)
+                )
             }
             Spacer(modifier = Modifier.height(6.dp))
             Text(
@@ -783,3 +645,4 @@ fun ActionGridCard(
         }
     }
 }
+
