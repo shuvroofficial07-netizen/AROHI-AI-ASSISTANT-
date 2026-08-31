@@ -23,7 +23,7 @@ android {
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 
-  signingConfigs {
+    signingConfigs {
     create("release") {
       val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
       storeFile = file(keystorePath)
@@ -32,7 +32,15 @@ android {
       keyPassword = System.getenv("KEY_PASSWORD")
     }
     create("debugConfig") {
-      storeFile = file("${rootDir}/debug.keystore")
+      // Prefer the repo-local debug keystore (CI generates it); fall back to the
+      // standard Android debug keystore so local builds work out of the box.
+      val repoKeystore = file("${rootDir}/debug.keystore")
+      val userKeystore = file("${System.getProperty("user.home")}/.android/debug.keystore")
+      storeFile = when {
+        repoKeystore.exists() -> repoKeystore
+        userKeystore.exists() -> userKeystore
+        else -> repoKeystore
+      }
       storePassword = "android"
       keyAlias = "androiddebugkey"
       keyPassword = "android"

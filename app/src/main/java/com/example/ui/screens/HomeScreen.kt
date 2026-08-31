@@ -7,6 +7,11 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -90,6 +95,12 @@ fun HomeScreen(
     val isSpeaking by viewModel.isSpeaking.collectAsState()
     val telemetry by viewModel.telemetry.collectAsState()
     val isListening = speechState == SpeechState.LISTENING
+
+    // Android 13+ requires POST_NOTIFICATIONS for the persistent foreground service notification
+    val context = LocalContext.current
+    val notifPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { viewModel.startBackgroundOperatingService() }
 
     val infiniteTransition = rememberInfiniteTransition(label = "avatar_pulse")
     val pulseGlow by infiniteTransition.animateFloat(
@@ -246,8 +257,13 @@ fun HomeScreen(
                     .clickable {
                         if (isBgActive) {
                             viewModel.stopBackgroundOperatingService()
-                        } else {
+                        } else if (Build.VERSION.SDK_INT < 33 ||
+                            ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS)
+                            == android.content.pm.PackageManager.PERMISSION_GRANTED
+                        ) {
                             viewModel.startBackgroundOperatingService()
+                        } else {
+                            notifPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
                         }
                     }
                     .padding(horizontal = 10.dp, vertical = 5.dp)

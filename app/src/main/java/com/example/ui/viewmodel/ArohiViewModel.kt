@@ -8,6 +8,7 @@ import com.example.data.local.entity.MemoryEntity
 import com.example.data.local.entity.MessageEntity
 import com.example.data.local.entity.NotificationEntity
 import com.example.data.local.entity.RoutineEntity
+import com.example.data.local.entity.TaskLogEntity
 import com.example.data.remote.GeminiClient
 import com.example.data.remote.GeminiConnectionState
 import com.example.data.remote.InlineData
@@ -19,6 +20,7 @@ import com.example.service.ArohiNotificationListenerService
 import com.example.service.DiagnosticCategory
 import com.example.service.DiagnosticItem
 import com.example.service.DiagnosticReport
+import com.example.data.repository.TaskLogRepository
 import com.example.service.DiagnosticService
 import com.example.service.DiagnosticStatusLevel
 import com.example.voice.SpeechRecognitionManager
@@ -27,6 +29,7 @@ import com.example.voice.TextToSpeechManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -61,6 +64,13 @@ class ArohiViewModel(application: Application) : AndroidViewModel(application) {
 
     val routines: StateFlow<List<RoutineEntity>> = app.routineRepository.allRoutines
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // Real smart tasks backed by Room task_logs
+    val taskLogs: StateFlow<List<TaskLogEntity>> = app.taskLogRepository.allTaskLogs
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _runningTaskIds = MutableStateFlow<Set<Long>>(emptySet())
+    val runningTaskIds: StateFlow<Set<Long>> = _runningTaskIds.asStateFlow()
 
     // Live Device Telemetry
     private val _telemetry = MutableStateFlow(app.deviceStateManager.getTelemetry())
@@ -316,6 +326,57 @@ class ArohiViewModel(application: Application) : AndroidViewModel(application) {
     fun clearChatHistory() {
         viewModelScope.launch(Dispatchers.IO) {
             app.conversationRepository.clearHistory()
+        }
+    }
+
+    fun addSmartTask(title: String) {
+        val clean = title.trim()
+        if (clean.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            app.taskLogRepository.addTask(clean)
+        }
+    }
+
+    fun deleteSmartTask(id: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            app.taskLogRepository.deleteTask(id)
+        }
+    }
+
+    fun clearFinishedTasks() {
+        viewModelScope.launch(Dispatchers.IO) {
+            app.taskLogRepository.allTaskLogs.first().let { all ->
+                all.filter { it.status == TaskLogRepository.STATUS_COMPLETED || it.status == TaskLogRepository.STATUS_FAILED }
+                    .forEach { app.taskLogRepository.deleteTask(it.id) }
+            }
+        }
+    }
+
+    /**
+     * Runs a saved smart task through the real AROHI brain (local engine first,
+     * then Gemini + tools), then records the genuine outcome in Room.
+     */
+    fun runSmartTask(id: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (_runningTaskIds.value.contains(id)) return@launch
+            _runningTaskIds.value = _runningTaskIds.value + id
+            app.taskLogRepository.markExecuting(id)
+            try {
+                val task = app.taskLogRepository.allTaskLogs.first().find { it.id == id }
+                val command = task?.taskName ?: return@launch
+                val response = app.brain.processInput(command)
+                val succeeded = response.emotion != ArohiEmotion.ERROR && response.emotion != ArohiEmotion.CONFUSED
+                app.taskLogRepository.markFinished(id, succeeded, response.text)
+                if (!app.settingsRepository.isSilenceMode() && response.text.isNotBlank()) {
+                    launch(Dispatchers.Main) {
+                        ttsManager.speak(response.text)
+                    }
+                }
+            } catch (e: Exception) {
+                app.taskLogRepository.markFinished(id, false, e.localizedMessage ?: "Unknown error")
+            } finally {
+                _runningTaskIds.value = _runningTaskIds.value - id
+            }
         }
     }
 

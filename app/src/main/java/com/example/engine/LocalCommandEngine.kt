@@ -3,11 +3,13 @@ package com.example.engine
 import com.example.data.repository.MemoryRepository
 import com.example.data.repository.NotificationRepository
 import com.example.data.repository.RoutineRepository
+import com.example.data.repository.SettingsRepository
 import com.example.device.AppDiscoveryManager
 import com.example.device.ContactsManager
 import com.example.device.DeviceStateManager
 import com.example.device.TelephonyHelper
 import com.example.service.ArohiAccessibilityService
+import com.example.service.ArohiNotificationListenerService
 import java.util.Locale
 
 data class LocalExecutionResult(
@@ -25,6 +27,7 @@ class LocalCommandEngine(
     private val memoryRepository: MemoryRepository,
     private val notificationRepository: NotificationRepository,
     private val routineRepository: RoutineRepository,
+    private val settingsRepository: SettingsRepository,
     private val verificationEngine: VerificationEngine
 ) {
 
@@ -194,18 +197,78 @@ class LocalCommandEngine(
             }
         }
 
-        // 10. Check Trigger for Custom Routines
+        // 10. Check Trigger for Custom Routines — execute the real actions
         val routine = routineRepository.findByTrigger(query)
         if (routine != null) {
+            val summary = executeRoutineActions(routine.actionsJson)
             return LocalExecutionResult(
                 isHandled = true,
-                responseText = "'${routine.name}' রুটিন কার্যকর করা হচ্ছে...",
+                responseText = "'${routine.name}' রুটিন সম্পন্ন হয়েছে:\n$summary",
                 emotion = ArohiEmotion.EXECUTING,
                 toolName = "run_routine"
             )
         }
 
         return LocalExecutionResult(isHandled = false, responseText = "")
+    }
+
+    /**
+     * Really executes the actions of a routine (JSON array like
+     * ["readDeviceState","getNotifications"]) using live device managers.
+     */
+    private suspend fun executeRoutineActions(actionsJson: String): String {
+        val actions = Regex("\"([a-zA-Z_]+)\"").findAll(actionsJson)
+            .map { it.groupValues[1] }
+            .toList()
+            .ifEmpty { listOf("readDeviceState") }
+
+        val results = mutableListOf<String>()
+        for (action in actions) {
+            when (action.lowercase(Locale.ROOT)) {
+                "readdevicestate" -> {
+                    val (percent, isCharging, _) = deviceStateManager.getBatteryInfo()
+                    val (freeRam, totalRam) = deviceStateManager.getRamInfo()
+                    val (freeStorage, _) = deviceStateManager.getStorageInfo()
+                    results.add(
+                        "• ব্যাটারি $percent%${if (isCharging) " (চার্জিং)" else ""}, ফ্রি র‍্যাম ${freeRam}/${totalRam}MB, ফ্রি স্টোরেজ $freeStorage GB"
+                    )
+                }
+                "getnotifications" -> {
+                    val unread = notificationRepository.getRecentUnread(5)
+                    if (unread.isEmpty()) {
+                        results.add("• কোনো অপঠিত নোটিফিকেশন নেই")
+                    } else {
+                        results.add("• অপঠিত নোটিফিকেশন: " + unread.joinToString("; ") { "${it.appName}: ${it.title}" })
+                    }
+                }
+                "setvolumequiet" -> {
+                    val ok = deviceStateManager.setMediaVolume(20)
+                    results.add(if (ok) "• মিডিয়া ভলিউম শান্ত মোডে (20%) সেট হয়েছে" else "• ভলিউম সেট করা যায়নি")
+                }
+                "silence" -> {
+                    settingsRepository.setSilenceMode(true)
+                    results.add("• সাইলেন্স মোড চালু হয়েছে — এখন থেকে AROHI চুপ থাকবে")
+                }
+                "torchoff" -> {
+                    val ok = deviceStateManager.toggleFlashlight(false)
+                    results.add(if (ok) "• টর্চ বন্ধ করা হয়েছে" else "• টর্চ বন্ধ করা যায়নি")
+                }
+                "torchon" -> {
+                    val ok = deviceStateManager.toggleFlashlight(true)
+                    results.add(if (ok) "• টর্চ চালু করা হয়েছে" else "• টর্চ চালু করা যায়নি")
+                }
+                "diagnostics" -> {
+                    val isAccess = ArohiAccessibilityService.isServiceRunning()
+                    val isNotif = ArohiNotificationListenerService.isConnected
+                    val (percent, isCharging, _) = deviceStateManager.getBatteryInfo()
+                    results.add(
+                        "• ডায়াগনস্টিকস: অ্যাকসেসিবিলিটি ${if (isAccess) "সক্রিয়" else "নিষ্ক্রিয়"}, নোটিফিকেশন লিসেনার ${if (isNotif) "সংযুক্ত" else "বিচ্ছিন্ন"}, ব্যাটারি $percent%"
+                    )
+                }
+                else -> results.add("• অজানা অ্যাকশন বাদ দেওয়া হয়েছে: $action")
+            }
+        }
+        return results.joinToString("\n")
     }
 
     private fun isSilenceCommand(text: String): Boolean {
