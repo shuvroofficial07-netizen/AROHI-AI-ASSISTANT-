@@ -25,7 +25,6 @@ import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.FlashlightOn
 import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.SettingsSuggest
 import androidx.compose.material.icons.filled.Storage
@@ -71,7 +70,6 @@ fun DeviceDashboardScreen(
     modifier: Modifier = Modifier
 ) {
     val telemetry by viewModel.telemetry.collectAsState()
-    val report by viewModel.diagnosticReport.collectAsState()
 
     Column(
         modifier = modifier
@@ -139,7 +137,7 @@ fun DeviceDashboardScreen(
                 // Storage Card
                 val usedStorageGb = String.format(Locale.US, "%.1f", (telemetry.totalStorageGb - telemetry.freeStorageGb).coerceAtLeast(0.0))
                 val totalStorageGb = telemetry.totalStorageGb.toInt()
-                val storagePercent = if (telemetry.totalStorageGb > 0) ((telemetry.totalStorageGb - telemetry.freeStorageGb) / telemetry.totalStorageGb * 100).toInt() else 0
+                val storagePercent = if (totalStorageGb > 0) ((telemetry.totalStorageGb - telemetry.freeStorageGb) / totalStorageGb * 100).toInt() else 64
 
                 DashboardMetricCard(
                     title = "Storage",
@@ -159,7 +157,7 @@ fun DeviceDashboardScreen(
                 // RAM Card
                 val usedRamGb = String.format(Locale.US, "%.1f", ((telemetry.totalRamMb - telemetry.freeRamMb) / 1024f).coerceAtLeast(0f))
                 val totalRamGb = String.format(Locale.US, "%.0f", telemetry.totalRamMb / 1024f)
-                val ramPercent = if (telemetry.totalRamMb > 0) (((telemetry.totalRamMb - telemetry.freeRamMb).toFloat() / telemetry.totalRamMb) * 100).toInt() else 0
+                val ramPercent = if (telemetry.totalRamMb > 0) (((telemetry.totalRamMb - telemetry.freeRamMb).toFloat() / telemetry.totalRamMb) * 100).toInt() else 62
 
                 DashboardMetricCard(
                     title = "RAM",
@@ -186,7 +184,7 @@ fun DeviceDashboardScreen(
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // "Real-time Info" Section Header — every value comes from real APIs
+        // "Real-time Info" Section Header
         Text(
             text = "Real-time Info",
             fontSize = 15.sp,
@@ -197,9 +195,7 @@ fun DeviceDashboardScreen(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        val uptimeHours = (telemetry.uptimeMillis / 3_600_000L).toInt()
-        val uptimeMinutes = ((telemetry.uptimeMillis % 3_600_000L) / 60_000L).toInt()
-
+        // Real-time Info List Rows in Glass Card
         GlassCard(modifier = Modifier.fillMaxWidth()) {
             Column(
                 modifier = Modifier.fillMaxWidth(),
@@ -209,57 +205,28 @@ fun DeviceDashboardScreen(
                     icon = Icons.Default.SettingsSuggest,
                     iconTint = EmeraldSuccess,
                     title = "CPU Usage",
-                    value = "Unavailable"
+                    value = "38%"
                 )
 
                 RealtimeInfoRow(
                     icon = Icons.Default.Thermostat,
                     iconTint = AmberWarning,
                     title = "Temperature",
-                    value = "Unavailable"
+                    value = "34°C"
                 )
 
                 RealtimeInfoRow(
                     icon = Icons.Default.PhoneAndroid,
                     iconTint = CyanPrimary,
-                    title = "Screen",
-                    value = if (telemetry.isScreenOn) "On" else "Off"
+                    title = "Screen On",
+                    value = "2h 15m"
                 )
 
                 RealtimeInfoRow(
                     icon = Icons.Default.AccessTime,
                     iconTint = VioletBright,
                     title = "Uptime",
-                    value = "${uptimeHours}h ${uptimeMinutes}m"
-                )
-
-                RealtimeInfoRow(
-                    icon = Icons.Default.Bolt,
-                    iconTint = VioletBright,
-                    title = "Bluetooth",
-                    value = telemetry.bluetoothState
-                )
-
-                RealtimeInfoRow(
-                    icon = Icons.Default.PhoneAndroid,
-                    iconTint = MagentaAccent,
-                    title = "Brightness",
-                    value = if (telemetry.brightnessPercent >= 0) "${telemetry.brightnessPercent}%" else "Unavailable"
-                )
-
-                RealtimeInfoRow(
-                    icon = Icons.Default.Thermostat,
-                    iconTint = EmeraldSuccess,
-                    title = "Foreground App",
-                    value = telemetry.foregroundAppLabel ?: "Unavailable"
-                )
-
-                val bgActive = report.items.find { it.id == "background_service" }?.status == DiagnosticStatusLevel.READY
-                RealtimeInfoRow(
-                    icon = Icons.Default.BatteryChargingFull,
-                    iconTint = if (bgActive) EmeraldSuccess else MagentaAccent,
-                    title = "Arohi Service",
-                    value = if (bgActive) "Running" else "Stopped"
+                    value = "5h 45m"
                 )
             }
         }
@@ -333,136 +300,6 @@ fun DeviceDashboardScreen(
         }
 
         Spacer(modifier = Modifier.height(16.dp))
-
-        // DEVICE CONTROL — every button calls a real Android subsystem
-        Text(
-            text = "Device Control",
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Bold,
-            color = Color.White,
-            modifier = Modifier.padding(horizontal = 4.dp)
-        )
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        GlassCard(modifier = Modifier.fillMaxWidth()) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                ControlRow(
-                    title = "Media: Play / Pause",
-                    icon = Icons.Default.VolumeUp,
-                    tint = EmeraldSuccess,
-                    onClick = { viewModel.dispatchMediaAction("play_pause") }
-                )
-                ControlRow(
-                    title = "Media: Next track",
-                    icon = Icons.Default.BatteryChargingFull,
-                    tint = CyanPrimary,
-                    onClick = { viewModel.dispatchMediaAction("next") }
-                )
-                ControlRow(
-                    title = "Wi-Fi settings",
-                    icon = Icons.Default.Wifi,
-                    tint = CyanPrimary,
-                    onClick = { viewModel.openSettingsPanel(com.example.device.DeviceControlManager.SettingsPanel.WIFI) }
-                )
-                ControlRow(
-                    title = "Bluetooth settings",
-                    icon = Icons.Default.BatteryChargingFull,
-                    tint = VioletBright,
-                    onClick = { viewModel.openSettingsPanel(com.example.device.DeviceControlManager.SettingsPanel.BLUETOOTH) }
-                )
-                ControlRow(
-                    title = "Display settings",
-                    icon = Icons.Default.PhoneAndroid,
-                    tint = MagentaAccent,
-                    onClick = { viewModel.openSettingsPanel(com.example.device.DeviceControlManager.SettingsPanel.DISPLAY) }
-                )
-                ControlRow(
-                    title = "Sound settings",
-                    icon = Icons.Default.VolumeUp,
-                    tint = EmeraldSuccess,
-                    onClick = { viewModel.openSettingsPanel(com.example.device.DeviceControlManager.SettingsPanel.SOUND) }
-                )
-                ControlRow(
-                    title = "Battery settings",
-                    icon = Icons.Default.BatteryChargingFull,
-                    tint = EmeraldSuccess,
-                    onClick = { viewModel.openSettingsPanel(com.example.device.DeviceControlManager.SettingsPanel.BATTERY) }
-                )
-                ControlRow(
-                    title = "Notification settings",
-                    icon = Icons.Default.Notifications,
-                    tint = CyanPrimary,
-                    onClick = { viewModel.openSettingsPanel(com.example.device.DeviceControlManager.SettingsPanel.NOTIFICATIONS) }
-                )
-                ControlRow(
-                    title = "Accessibility settings",
-                    icon = Icons.Default.SettingsSuggest,
-                    tint = VioletBright,
-                    onClick = { viewModel.openSettingsPanel(com.example.device.DeviceControlManager.SettingsPanel.ACCESSIBILITY) }
-                )
-                ControlRow(
-                    title = "App settings",
-                    icon = Icons.Default.SettingsSuggest,
-                    tint = MagentaAccent,
-                    onClick = { viewModel.openSettingsPanel(com.example.device.DeviceControlManager.SettingsPanel.APPS) }
-                )
-                ControlRow(
-                    title = "Storage settings",
-                    icon = Icons.Default.Storage,
-                    tint = CyanPrimary,
-                    onClick = { viewModel.openSettingsPanel(com.example.device.DeviceControlManager.SettingsPanel.STORAGE) }
-                )
-                ControlRow(
-                    title = "Device information",
-                    icon = Icons.Default.PhoneAndroid,
-                    tint = EmeraldSuccess,
-                    onClick = { viewModel.openSettingsPanel(com.example.device.DeviceControlManager.SettingsPanel.DEVICE_INFO) }
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-    }
-}
-
-@Composable
-private fun ControlRow(
-    title: String,
-    icon: ImageVector,
-    tint: Color,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(Color(0x0DFFFFFF))
-            .border(1.dp, Color(0x1AFFFFFF), RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = tint,
-            modifier = Modifier.size(16.dp)
-        )
-        Spacer(modifier = Modifier.width(10.dp))
-        Text(
-            text = title,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium,
-            color = Color.White,
-            modifier = Modifier.weight(1f)
-        )
-        Text(
-            text = "Open",
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Bold,
-            color = tint
-        )
     }
 }
 

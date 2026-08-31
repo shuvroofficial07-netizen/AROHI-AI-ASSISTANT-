@@ -18,7 +18,6 @@ import com.example.data.repository.SettingsRepository
 import com.example.device.AppDiscoveryManager
 import com.example.device.ContactsManager
 import com.example.device.DeviceStateManager
-import com.example.device.PhoneStateManager
 import com.example.device.TelephonyHelper
 import com.example.service.ArohiAccessibilityService
 import com.example.service.ArohiNotificationListenerService
@@ -41,7 +40,6 @@ class ArohiBrain(
     private val appDiscoveryManager: AppDiscoveryManager,
     private val contactsManager: ContactsManager,
     private val telephonyHelper: TelephonyHelper,
-    private val phoneStateManager: PhoneStateManager,
     private val memoryRepository: MemoryRepository,
     private val notificationRepository: NotificationRepository,
     private val routineRepository: RoutineRepository,
@@ -49,9 +47,7 @@ class ArohiBrain(
     private val settingsRepository: SettingsRepository,
     private val localCommandEngine: LocalCommandEngine,
     private val verificationEngine: VerificationEngine,
-    private val emotionEngine: EmotionEngine,
-    private val activityTracker: BrainActivityTracker,
-    private val eventBus: SystemEventBus
+    private val emotionEngine: EmotionEngine
 ) {
 
     private val _isProcessing = MutableStateFlow(false)
@@ -63,7 +59,6 @@ class ArohiBrain(
     ): BrainResponse {
         _isProcessing.value = true
         emotionEngine.setEmotion(ArohiEmotion.THINKING)
-        activityTracker.setPhase(BrainPhase.UNDERSTANDING)
 
         try {
             // If no image is attached, test local engine first for instant response
@@ -72,8 +67,6 @@ class ArohiBrain(
                 if (localResult.isHandled) {
                     _isProcessing.value = false
                     emotionEngine.setEmotion(localResult.emotion)
-                    activityTracker.setPhase(BrainPhase.VERIFYING)
-                    activityTracker.setPhase(BrainPhase.DONE)
 
                     // Persist to history
                     conversationRepository.addMessage(
@@ -101,7 +94,6 @@ class ArohiBrain(
                 val fallbackText = "Gemini API Key সেট করা নেই। সেটিংস থেকে আপনার Gemini API Key যুক্ত করুন অথবা সাধারণ ভয়েস কমান্ড (ব্যাটারি, টর্চ, অ্যাপ ওপেন, কল) ব্যবহার করুন।"
                 _isProcessing.value = false
                 emotionEngine.setEmotion(ArohiEmotion.CONFUSED)
-                activityTracker.setPhase(BrainPhase.DONE)
                 return BrainResponse(
                     text = fallbackText,
                     emotion = ArohiEmotion.CONFUSED,
@@ -109,7 +101,6 @@ class ArohiBrain(
                 )
             }
 
-            activityTracker.setPhase(BrainPhase.CHECKING_CONTEXT)
             val systemInstruction = buildSystemPrompt()
             val recentMessages = conversationRepository.getRecentMessages(10).reversed()
             val contents = mutableListOf<Content>()
@@ -133,7 +124,6 @@ class ArohiBrain(
             }
             contents.add(Content(role = "user", parts = currentParts))
 
-            activityTracker.setPhase(BrainPhase.PLANNING_ACTION)
             val request = GenerateContentRequest(
                 systemInstruction = systemInstruction,
                 contents = contents,
@@ -152,11 +142,9 @@ class ArohiBrain(
 
             if (!apiResponse.isSuccessful) {
                 val code = apiResponse.code()
-                val err = "Gemini সার্ভার সমস্যা ($code)। অনুগ্রহ করে নেটওয়ার্ক ও API কী যাচাই করুন।"
+                val err = "Gemini সার্ভার সমস্যা ($code)। অনুগ্রহ করে নেটওয়ার্ক ও API কী যাচাই করুন।"
                 _isProcessing.value = false
                 emotionEngine.setEmotion(ArohiEmotion.ERROR)
-                activityTracker.setPhase(BrainPhase.ERROR)
-                eventBus.log("GEMINI", "Request failed ($code)", SystemEventLevel.ERROR)
                 return BrainResponse(text = err, emotion = ArohiEmotion.ERROR)
             }
 
@@ -164,28 +152,39 @@ class ArohiBrain(
             val modelContent = candidate?.content
             val firstPart = modelContent?.parts?.firstOrNull()
 
-            // Check if model returned a function call — run the REAL multi-step tool loop
+            // Check if model returned a function call
             if (firstPart?.functionCall != null) {
+                emotionEngine.setEmotion(ArohiEmotion.EXECUTING)
                 val fnCall = firstPart.functionCall
-                val result = runToolLoop(
-                    apiKey = apiKey,
-                    modelName = modelName,
-                    request = request,
-                    firstCall = fnCall,
-                    accumulatedContents = contents
-                )
+                val toolExecResult = executeToolCall(fnCall)
+
+                // Return tool execution response
                 _isProcessing.value = false
-                activityTracker.setPhase(BrainPhase.DONE)
-                return result
+                val finalEmotion = emotionEngine.inferEmotionFromText(toolExecResult)
+                emotionEngine.setEmotion(finalEmotion)
+
+                conversationRepository.addMessage(
+                    role = "AROHI",
+                    content = toolExecResult,
+                    emotion = finalEmotion.name,
+                    isVoice = true,
+                    toolCallJson = fnCall.name,
+                    toolResultJson = toolExecResult
+                )
+
+                return BrainResponse(
+                    text = toolExecResult,
+                    emotion = finalEmotion,
+                    toolCall = fnCall.name,
+                    toolResult = toolExecResult
+                )
             }
 
             // Normal textual response
             val responseText = firstPart?.text?.trim() ?: "আমি বুঝতে পারিনি, আবার বলুন।"
             val inferredEmotion = emotionEngine.inferEmotionFromText(responseText)
             _isProcessing.value = false
-            activityTracker.setPhase(BrainPhase.RESPONDING)
             emotionEngine.setEmotion(inferredEmotion)
-            activityTracker.setPhase(BrainPhase.DONE)
 
             conversationRepository.addMessage(
                 role = "AROHI",
@@ -202,155 +201,8 @@ class ArohiBrain(
         } catch (e: Exception) {
             _isProcessing.value = false
             emotionEngine.setEmotion(ArohiEmotion.ERROR)
-            activityTracker.setPhase(BrainPhase.ERROR)
-            val errText = "সাময়িক সমস্যা হয়েছে: ${e.localizedMessage ?: "অজানা ত্রুটি"}"
-            eventBus.log("BRAIN", "Error: ${e.localizedMessage ?: "unknown"}", SystemEventLevel.ERROR)
+            val errText = "সাময়িক সমস্যা হয়েছে: ${e.localizedMessage ?: "অজানা ত্রুটি"}"
             return BrainResponse(text = errText, emotion = ArohiEmotion.ERROR)
-        }
-    }
-
-    /**
-     * Real multi-step task engine: asks Gemini for tool calls, executes each
-     * one on the device, feeds the genuine result back, and repeats until the
-     * model produces a final answer (max 4 steps). Every step is published to
-     * the live Task Execution UI through [BrainActivityTracker].
-     */
-    private suspend fun runToolLoop(
-        apiKey: String,
-        modelName: String,
-        request: GenerateContentRequest,
-        firstCall: FunctionCall,
-        accumulatedContents: MutableList<Content>
-    ): BrainResponse {
-        activityTracker.startTask(accumulatedContents.lastOrNull { it.role == "user" }
-            ?.parts?.firstOrNull()?.text?.take(80) ?: "Task")
-        eventBus.log("TASK", "Task started", SystemEventLevel.INFO)
-
-        var pendingCall: FunctionCall? = firstCall
-        val steps = mutableListOf<TaskStep>()
-        var stepOrder = 0
-        var guard = 0
-        var lastToolResult = ""
-        var lastText = ""
-
-        while (pendingCall != null && guard < 4) {
-            guard++
-            stepOrder++
-            val call = pendingCall
-            steps += TaskStep(
-                order = stepOrder,
-                toolName = call.name,
-                description = describeToolCall(call),
-                status = TaskStepStatus.RUNNING
-            )
-            activityTracker.setSteps(steps.toList())
-            emotionEngine.setEmotion(ArohiEmotion.EXECUTING)
-            activityTracker.setPhase(BrainPhase.EXECUTING)
-            eventBus.log("TASK", "Executing: ${call.name}", SystemEventLevel.INFO)
-
-            val toolResult = try {
-                executeToolCall(call)
-            } catch (e: Exception) {
-                "টুল এক্সিকিউশন ব্যর্থ: ${e.localizedMessage ?: call.name}"
-            }
-
-            val failed = toolResult.contains("ব্যর্থ") || toolResult.contains("সম্ভব হয়নি") ||
-                toolResult.contains("সম্ভব হয়নি") || toolResult.contains("পাওয়া যায়নি")
-            steps[steps.size - 1] = steps.last().copy(
-                status = if (failed) TaskStepStatus.FAILED else TaskStepStatus.COMPLETED,
-                detail = toolResult
-            )
-            activityTracker.setSteps(steps.toList())
-            lastToolResult = toolResult
-
-            // Feed the genuine result back to the model
-            val feedbackContents = accumulatedContents.toMutableList()
-            feedbackContents.add(Content(role = "model", parts = listOf(Part(functionCall = call))))
-            feedbackContents.add(
-                Content(
-                    role = "user",
-                    parts = listOf(
-                        Part(
-                            functionResponse = FunctionResponse(
-                                name = call.name,
-                                response = mapOf("result" to toolResult)
-                            )
-                        )
-                    )
-                )
-            )
-
-            val feedbackRequest = request.copy(contents = feedbackContents)
-            val feedbackResponse = GeminiClient.service.generateContent(
-                model = modelName,
-                apiKey = apiKey,
-                request = feedbackRequest
-            )
-
-            if (!feedbackResponse.isSuccessful) {
-                val code = feedbackResponse.code()
-                eventBus.log("TASK", "Gemini follow-up failed ($code)", SystemEventLevel.ERROR)
-                pendingCall = null
-                lastText = ""
-                break
-            }
-
-            val nextPart = feedbackResponse.body()?.candidates?.firstOrNull()?.content?.parts?.firstOrNull()
-            pendingCall = nextPart?.functionCall
-            nextPart?.text?.let { lastText = it.trim() }
-        }
-
-        activityTracker.setPhase(BrainPhase.VERIFYING)
-        val finalText = if (lastText.isNotBlank()) lastText else if (lastToolResult.isNotBlank()) {
-            "টাস্ক সম্পন্ন হয়েছে: $lastToolResult"
-        } else {
-            "টাস্ক সম্পন্ন করা হয়েছে।"
-        }
-
-        val finalEmotion = emotionEngine.inferEmotionFromText(finalText)
-        emotionEngine.setEmotion(finalEmotion)
-        activityTracker.finishTask(success = finalEmotion != ArohiEmotion.ERROR)
-        activityTracker.setPhase(BrainPhase.DONE)
-        eventBus.log("TASK", if (finalEmotion != ArohiEmotion.ERROR) "Task completed" else "Task failed", SystemEventLevel.SUCCESS)
-
-        conversationRepository.addMessage(
-            role = "AROHI",
-            content = finalText,
-            emotion = finalEmotion.name,
-            isVoice = true,
-            toolCallJson = steps.firstOrNull()?.toolName,
-            toolResultJson = steps.joinToString("\n") { "• ${it.toolName}: ${it.detail}" }
-        )
-
-        return BrainResponse(
-            text = finalText,
-            emotion = finalEmotion,
-            toolCall = steps.firstOrNull()?.toolName,
-            toolResult = steps.joinToString("\n") { "• ${it.toolName}: ${it.detail}" }
-        )
-    }
-
-    private fun describeToolCall(call: FunctionCall): String {
-        return when (call.name) {
-            "open_app" -> "Opening ${call.args?.get("app_name") ?: "app"}"
-            "make_phone_call" -> "Calling ${call.args?.get("target") ?: "contact"}"
-            "send_sms" -> "Preparing SMS"
-            "send_whatsapp" -> "Preparing WhatsApp message"
-            "read_device_telemetry" -> "Reading device telemetry"
-            "toggle_flashlight" -> "Toggling flashlight"
-            "set_media_volume" -> "Setting media volume"
-            "media_control" -> "Media control"
-            "read_notifications" -> "Reading notifications"
-            "inspect_screen" -> "Reading screen content"
-            "click_screen_element" -> "Tapping screen element"
-            "save_user_memory" -> "Saving to memory"
-            "search_memory" -> "Searching memory"
-            "open_settings" -> "Opening settings panel"
-            "open_url" -> "Opening URL"
-            "get_current_app" -> "Detecting foreground app"
-            "check_call_state" -> "Checking call state"
-            "diagnostics_check" -> "Running diagnostics"
-            else -> call.name
         }
     }
 
@@ -366,7 +218,7 @@ class ArohiBrain(
                     val launched = appDiscoveryManager.launchApp(foundApp.packageName)
                     verificationEngine.verifyAppLaunch(launched, foundApp.label).summary
                 } else {
-                    "'$appName' অ্যাপটি আপনার ডিভাইসে খুঁজে পাওয়া যায়নি।"
+                    "'$appName' অ্যাপটি আপনার ডিভাইসে খুঁজে পাওয়া যায়নি।"
                 }
             }
             "make_phone_call" -> {
@@ -394,7 +246,7 @@ class ArohiBrain(
             }
             "read_device_telemetry" -> {
                 val telemetry = deviceStateManager.getTelemetry()
-                "ডিভাইস স্ট্যাটাস: ব্যাটারি ${telemetry.batteryPercent}% (${if (telemetry.isCharging) "চার্জিং" else "ব্যাটারিতে"}), ফ্রি র‍্যাম ${telemetry.freeRamMb}MB/${telemetry.totalRamMb}MB, ফ্রি স্টোরেজ ${telemetry.freeStorageGb}GB, নেটওয়ার্ক: ${telemetry.networkType}, ভলিউম: ${telemetry.mediaVolumePercent}%, ব্লুটুথ: ${telemetry.bluetoothState}।"
+                "ডিভাইস স্ট্যাটাস: ব্যাটারি ${telemetry.batteryPercent}% (${if (telemetry.isCharging) "চার্জিং" else "ব্যাটারিতে"}), ফ্রি র‍্যাম ${telemetry.freeRamMb}MB/${telemetry.totalRamMb}MB, ফ্রি স্টোরেজ ${telemetry.freeStorageGb}GB, নেটওয়ার্ক: ${telemetry.networkType}, ভলিউম: ${telemetry.mediaVolumePercent}%।"
             }
             "toggle_flashlight" -> {
                 val enabled = args["enabled"]?.toString()?.toBooleanStrictOrNull() ?: true
@@ -405,51 +257,6 @@ class ArohiBrain(
                 val percent = args["percent"]?.toString()?.toDoubleOrNull()?.toInt() ?: 50
                 val success = deviceStateManager.setMediaVolume(percent)
                 verificationEngine.verifyVolume(success, percent).summary
-            }
-            "media_control" -> {
-                val action = args["action"]?.toString() ?: "play_pause"
-                val success = deviceControlManagerForBrain().dispatchMediaAction(action)
-                if (success) "মিডিয়া কন্ট্রোল ($action) পাঠানো হয়েছে।" else "মিডিয়া কন্ট্রোল পাঠানো যায়নি।"
-            }
-            "open_settings" -> {
-                val panel = args["panel"]?.toString() ?: ""
-                val targetPanel = when (panel.lowercase(Locale.ROOT)) {
-                    "wifi", "wifi_settings" -> com.example.device.DeviceControlManager.SettingsPanel.WIFI
-                    "bluetooth" -> com.example.device.DeviceControlManager.SettingsPanel.BLUETOOTH
-                    "display", "brightness", "screen" -> com.example.device.DeviceControlManager.SettingsPanel.DISPLAY
-                    "sound", "volume", "ringtone" -> com.example.device.DeviceControlManager.SettingsPanel.SOUND
-                    "battery", "power" -> com.example.device.DeviceControlManager.SettingsPanel.BATTERY
-                    "notification" -> com.example.device.DeviceControlManager.SettingsPanel.NOTIFICATIONS
-                    "accessibility" -> com.example.device.DeviceControlManager.SettingsPanel.ACCESSIBILITY
-                    "app", "applications" -> com.example.device.DeviceControlManager.SettingsPanel.APPS
-                    "storage" -> com.example.device.DeviceControlManager.SettingsPanel.STORAGE
-                    "about", "device_info" -> com.example.device.DeviceControlManager.SettingsPanel.DEVICE_INFO
-                    "location" -> com.example.device.DeviceControlManager.SettingsPanel.LOCATION
-                    "security" -> com.example.device.DeviceControlManager.SettingsPanel.SECURITY
-                    else -> com.example.device.DeviceControlManager.SettingsPanel.APPS
-                }
-                val success = deviceControlManagerForBrain().openSettingsPanel(targetPanel)
-                if (success) "${targetPanel.label} খোলা হয়েছে।" else "${targetPanel.label} খোলা যায়নি।"
-            }
-            "open_url" -> {
-                val url = args["url"]?.toString() ?: ""
-                val success = deviceControlManagerForBrain().openUrl(url)
-                if (success) "$url খোলা হয়েছে।" else "URL খোলা যায়নি।"
-            }
-            "get_current_app" -> {
-                val label = deviceStateManager.getForegroundAppLabel()
-                if (label != null) "বর্তমানে খোলা অ্যাপ: $label।" else "বর্তমান অ্যাপ পড়া যাচ্ছে না — Usage Access পারমিশন প্রয়োজন।"
-            }
-            "check_call_state" -> {
-                val call = phoneStateManager.callInfo.value
-                when (call.state) {
-                    com.example.device.CallState.RINGING ->
-                        if (call.callerName.isNotBlank()) "${call.callerName} কল করছে (${call.incomingNumber})।"
-                        else "অজানা নম্বর (${call.incomingNumber}) থেকে কল আসছে।"
-                    com.example.device.CallState.OFFHOOK -> "বর্তমানে একটি কল চলছে।"
-                    com.example.device.CallState.IDLE -> "বর্তমানে কোনো কল নেই।"
-                    else -> "কল স্টেট পাওয়া যায়নি।"
-                }
             }
             "read_notifications" -> {
                 val unread = notificationRepository.getRecentUnread(5)
@@ -464,16 +271,16 @@ class ArohiBrain(
             }
             "inspect_screen" -> {
                 val access = ArohiAccessibilityService.instance
-                access?.inspectCurrentScreen() ?: "Accessibility Service সক্রিয় নেই। সেটিংস থেকে পারমিশন দিন।"
+                access?.inspectCurrentScreen() ?: "Accessibility Service সক্রিয় নেই। সেটিংস থেকে পারমিশন দিন।"
             }
             "click_screen_element" -> {
                 val query = args["query"]?.toString() ?: ""
                 val access = ArohiAccessibilityService.instance
                 if (access != null) {
                     val clicked = access.clickByText(query)
-                    if (clicked) "'$query' ক্লিক করা হয়েছে।" else "'$query' খুঁজে পাওয়া যায়নি।"
+                    if (clicked) "'$query' ক্লিক করা হয়েছে।" else "'$query' খুঁজে পাওয়া যায়নি।"
                 } else {
-                    "Accessibility Service সক্রিয় নেই।"
+                    "Accessibility Service সক্রিয় নেই।"
                 }
             }
             "save_user_memory" -> {
@@ -487,25 +294,20 @@ class ArohiBrain(
                 val query = args["query"]?.toString() ?: ""
                 val results = memoryRepository.search(query)
                 if (results.isEmpty()) {
-                    "মেমোরিতে '$query' সম্পর্কিত কোনো তথ্য পাওয়া যায়নি।"
+                    "মেমোরিতে '$query' সম্পর্কিত কোনো তথ্য পাওয়া যায়নি।"
                 } else {
                     "মেমোরি তথ্য:\n" + results.joinToString("\n") { "• ${it.key}: ${it.value}" }
                 }
             }
             "diagnostics_check" -> {
                 val telemetry = deviceStateManager.getTelemetry()
+                val hasMic = contactsManager.hasContactsPermission()
                 val isAccess = ArohiAccessibilityService.isServiceRunning()
                 val isNotif = ArohiNotificationListenerService.isConnected
-                "সিস্টেম ডায়াগনস্টিকস:\n• ব্যাটারি ও সেন্সর: সচল\n• কন্ট্রোল সার্ভিস: ${if (isAccess) "সক্রিয়" else "নিষ্ক্রিয়"}\n• নোটিফিকেশন লিসেনার: ${if (isNotif) "সংযুক্ত" else "অপেক্ষারত"}\n• ওএস: ${telemetry.androidVersion}"
+                "সিস্টেম ডায়াগনস্টিকস:\n• ব্যাটারি ও সেন্সর: সচল\n• কন্ট্রোল সার্ভিস: ${if (isAccess) "সক্রিয়" else "নিষ্ক্রিয়"}\n• নোটিফিকেশন লিসেনার: ${if (isNotif) "সংযুক্ত" else "অপেক্ষারত"}\n• ওএস: ${telemetry.androidVersion}"
             }
-            else -> "কমান্ড '$name' সম্পন্ন করা হয়েছে।"
+            else -> "কমান্ড '$name' সম্পন্ন করা হয়েছে।"
         }
-    }
-
-    /** Shared real control surface for settings/URL/media actions. */
-    private fun deviceControlManagerForBrain(): com.example.device.DeviceControlManager {
-        return (context.applicationContext as? com.example.ArohiApplication)?.deviceControlManager
-            ?: com.example.device.DeviceControlManager(context)
     }
 
     private suspend fun buildSystemPrompt(): Content {

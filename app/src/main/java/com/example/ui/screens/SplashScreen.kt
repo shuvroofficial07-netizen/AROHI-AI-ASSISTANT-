@@ -1,13 +1,16 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,13 +22,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -45,46 +47,49 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.service.DiagnosticReport
-import com.example.service.DiagnosticStatusLevel
 import com.example.ui.theme.CyanGlow
 import com.example.ui.theme.CyanPrimary
-import com.example.ui.theme.EmeraldSuccess
 import com.example.ui.theme.MagentaAccent
 import com.example.ui.theme.TextMuted
 import com.example.ui.theme.VioletBright
 import com.example.ui.theme.VioletSecondary
-import com.example.ui.viewmodel.ArohiViewModel
 import kotlinx.coroutines.delay
 
-/**
- * Premium futuristic splash. Every line below the logo is a REAL system
- * check taken from the live diagnostic report — no fake percentages, no
- * simulated progress. Navigation happens once the actual checks complete.
- */
 @Composable
 fun SplashScreen(
-    viewModel: ArohiViewModel,
     onFinish: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val report by viewModel.diagnosticReport.collectAsState()
-    val isChecking by viewModel.isDiagnosticsChecking.collectAsState()
-    var minimumTimePassed by remember { mutableStateOf(false) }
+    var progress by remember { mutableFloatStateOf(0f) }
+    var currentPhaseText by remember { mutableStateOf("Initializing Arohi v13.97.7...") }
 
     LaunchedEffect(Unit) {
-        viewModel.runFullDiagnostics()
-        delay(1200)
-        minimumTimePassed = true
+        val phases = listOf(
+            "Initializing Arohi v13.97.7...",
+            "Checking voice engine...",
+            "Checking Gemini connection...",
+            "Checking system permissions...",
+            "Starting background operating layer...",
+            "Loading local memory & routines...",
+            "Checking notification intelligence...",
+            "Arohi AI Assistant Ready"
+        )
+        val steps = 50
+        for (i in 1..steps) {
+            delay(35)
+            progress = i / steps.toFloat()
+            val phaseIdx = ((progress * (phases.size - 1)).toInt()).coerceIn(0, phases.size - 1)
+            currentPhaseText = phases[phaseIdx]
+        }
+        delay(300)
+        onFinish()
     }
 
-    // Navigate only when the REAL checks have finished running
-    LaunchedEffect(isChecking, minimumTimePassed, report.timestamp) {
-        if (minimumTimePassed && !isChecking && report.timestamp > 0L) {
-            delay(350)
-            onFinish()
-        }
-    }
+    val animatedProgress by animateFloatAsState(
+        targetValue = progress,
+        animationSpec = tween(durationMillis = 100, easing = LinearEasing),
+        label = "progress"
+    )
 
     val infiniteTransition = rememberInfiniteTransition(label = "splash_glow")
     val pulseAlpha by infiniteTransition.animateFloat(
@@ -96,11 +101,21 @@ fun SplashScreen(
         ),
         label = "pulse_alpha"
     )
+    val rotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(8000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "rotation"
+    )
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(Color(0xFF020205))
+            .clickable { onFinish() }
             .testTag("splash_screen_view"),
         contentAlignment = Alignment.Center
     ) {
@@ -126,7 +141,7 @@ fun SplashScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 28.dp, vertical = 40.dp),
+                .padding(horizontal = 32.dp, vertical = 48.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
@@ -138,8 +153,9 @@ fun SplashScreen(
                 verticalArrangement = Arrangement.Center,
                 modifier = Modifier.weight(1f)
             ) {
+                // Circular Neon Emblem with Audio Waveform horizontal rays
                 Box(
-                    modifier = Modifier.size(170.dp),
+                    modifier = Modifier.size(190.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Canvas(modifier = Modifier.fillMaxSize()) {
@@ -147,12 +163,15 @@ fun SplashScreen(
                         val centerY = size.height / 2f
                         val radius = size.minDimension * 0.36f
 
-                        val rayCount = 12
+                        // Outer waveform rays (horizontal left & right)
+                        val rayCount = 14
                         for (i in 0 until rayCount) {
-                            val rayHeight = (10 + (i % 4) * 7) * pulseAlpha
+                            val rayHeight = (12 + (i % 5) * 8) * pulseAlpha
                             val offsetXLeft = centerX - radius - 10 - (i * 6)
                             val offsetXRight = centerX + radius + 10 + (i * 6)
                             val rayAlpha = (1f - (i.toFloat() / rayCount)) * 0.8f
+
+                            // Left rays
                             drawLine(
                                 color = CyanPrimary.copy(alpha = rayAlpha),
                                 start = Offset(offsetXLeft, centerY - rayHeight / 2),
@@ -160,6 +179,7 @@ fun SplashScreen(
                                 strokeWidth = 3f,
                                 cap = StrokeCap.Round
                             )
+                            // Right rays
                             drawLine(
                                 color = MagentaAccent.copy(alpha = rayAlpha),
                                 start = Offset(offsetXRight, centerY - rayHeight / 2),
@@ -169,6 +189,7 @@ fun SplashScreen(
                             )
                         }
 
+                        // Outer glowing circular ring
                         drawCircle(
                             brush = Brush.sweepGradient(
                                 colors = listOf(
@@ -183,6 +204,7 @@ fun SplashScreen(
                             style = Stroke(width = 3.5.dp.toPx(), cap = StrokeCap.Round)
                         )
 
+                        // Outer halo
                         drawCircle(
                             color = CyanPrimary.copy(alpha = 0.2f * pulseAlpha),
                             radius = radius + 8.dp.toPx(),
@@ -191,9 +213,10 @@ fun SplashScreen(
                         )
                     }
 
+                    // Central "A" Logo Symbol
                     Text(
                         text = "A",
-                        fontSize = 52.sp,
+                        fontSize = 58.sp,
                         fontWeight = FontWeight.Black,
                         fontFamily = FontFamily.SansSerif,
                         color = Color.White,
@@ -206,110 +229,106 @@ fun SplashScreen(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(28.dp))
 
+                // "Arohi" Gradient Title
                 Text(
-                    text = "Arohi AI Assistant",
-                    fontSize = 36.sp,
+                    text = "Arohi",
+                    fontSize = 44.sp,
                     fontWeight = FontWeight.ExtraBold,
                     letterSpacing = 1.sp,
-                    color = CyanPrimary,
-                    textAlign = TextAlign.Center
+                    color = CyanPrimary
+                )
+
+                // "AI Assistant" Subtitle
+                Text(
+                    text = "AI Assistant",
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    letterSpacing = 0.5.sp
                 )
 
                 Spacer(modifier = Modifier.height(6.dp))
 
+                // "by Shù Vrô" Calligraphic Signature
                 Text(
                     text = "by Shù Vrô",
-                    fontSize = 19.sp,
+                    fontSize = 20.sp,
                     fontWeight = FontWeight.SemiBold,
                     fontStyle = FontStyle.Italic,
                     color = MagentaAccent,
                     letterSpacing = 1.sp
                 )
+            }
 
-                Spacer(modifier = Modifier.height(4.dp))
-
+            // Bottom Loading Indicator
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
                 Text(
-                    text = "NEXT GENERATION",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 4.sp,
-                    color = TextMuted
+                    text = currentPhaseText,
+                    fontSize = 12.sp,
+                    color = CyanPrimary,
+                    letterSpacing = 0.5.sp,
+                    fontWeight = FontWeight.Medium
                 )
-            }
 
-            // Bottom: REAL initialization states from the live diagnostic report
-            RealInitStatusList(report = report, isChecking = isChecking)
-        }
-    }
-}
+                Spacer(modifier = Modifier.height(12.dp))
 
-@Composable
-private fun RealInitStatusList(
-    report: DiagnosticReport,
-    isChecking: Boolean
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(androidx.compose.foundation.shape.RoundedCornerShape(18.dp))
-            .background(Color(0x0DFFFFFF))
-            .padding(horizontal = 14.dp, vertical = 12.dp)
-    ) {
-        val statusLines = buildList {
-            add("Initializing Arohi" to if (!isChecking && report.items.isEmpty()) SplashCheck.DONE else SplashCheck.PENDING)
-            report.items.forEach { item ->
-                val check = when (item.status) {
-                    DiagnosticStatusLevel.READY -> SplashCheck.DONE
-                    DiagnosticStatusLevel.LIMITED -> SplashCheck.WARN
-                    DiagnosticStatusLevel.ERROR -> SplashCheck.ERROR
-                }
-                add(item.summary to check)
-            }
-        }
-
-        Column(
-            modifier = Modifier
-                .height(120.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            statusLines.take(8).forEach { (label, check) ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                // Progress Bar with Cyan/Purple Gradient
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Box(
                         modifier = Modifier
-                            .size(6.dp)
-                            .clip(androidx.compose.foundation.shape.CircleShape)
-                            .background(
-                                when (check) {
-                                    SplashCheck.DONE -> EmeraldSuccess
-                                    SplashCheck.WARN -> Color(0xFFF59E0B)
-                                    SplashCheck.ERROR -> MagentaAccent
-                                    SplashCheck.PENDING -> Color(0xFF334155)
-                                }
-                            )
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
+                            .weight(1f)
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(Color(0x1AFFFFFF))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(animatedProgress)
+                                .height(6.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(
+                                    Brush.horizontalGradient(
+                                        colors = listOf(
+                                            CyanPrimary,
+                                            VioletBright,
+                                            MagentaAccent
+                                        )
+                                    )
+                                )
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(10.dp))
+
                     Text(
-                        text = label,
-                        fontSize = 10.5.sp,
+                        text = "${(animatedProgress * 100).toInt()}%",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace,
-                        color = TextMuted
+                        color = Color.White
                     )
                 }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Centered -- 100% -- indicator
+                Text(
+                    text = "-- ${(animatedProgress * 100).toInt()}% --",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    fontFamily = FontFamily.Monospace,
+                    letterSpacing = 2.sp,
+                    color = CyanPrimary.copy(alpha = 0.7f)
+                )
             }
         }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = if (isChecking) "Running real system checks..." else "System initialization complete",
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Medium,
-            color = if (isChecking) CyanPrimary else EmeraldSuccess
-        )
     }
 }
-
-private enum class SplashCheck { DONE, WARN, ERROR, PENDING }

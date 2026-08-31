@@ -5,11 +5,8 @@ import com.example.data.repository.NotificationRepository
 import com.example.data.repository.RoutineRepository
 import com.example.data.repository.SettingsRepository
 import com.example.device.AppDiscoveryManager
-import com.example.device.CallState
 import com.example.device.ContactsManager
-import com.example.device.DeviceControlManager
 import com.example.device.DeviceStateManager
-import com.example.device.PhoneStateManager
 import com.example.device.TelephonyHelper
 import com.example.service.ArohiAccessibilityService
 import com.example.service.ArohiNotificationListenerService
@@ -24,17 +21,14 @@ data class LocalExecutionResult(
 
 class LocalCommandEngine(
     private val deviceStateManager: DeviceStateManager,
-    private val deviceControlManager: DeviceControlManager,
     private val appDiscoveryManager: AppDiscoveryManager,
     private val contactsManager: ContactsManager,
     private val telephonyHelper: TelephonyHelper,
-    private val phoneStateManager: PhoneStateManager,
     private val memoryRepository: MemoryRepository,
     private val notificationRepository: NotificationRepository,
     private val routineRepository: RoutineRepository,
     private val settingsRepository: SettingsRepository,
-    private val verificationEngine: VerificationEngine,
-    private val eventBus: SystemEventBus
+    private val verificationEngine: VerificationEngine
 ) {
 
     suspend fun tryExecuteLocally(input: String): LocalExecutionResult {
@@ -215,137 +209,7 @@ class LocalCommandEngine(
             )
         }
 
-        // 11. Settings panels — every control calls the real Android subsystem
-        val settingsPanel = detectSettingsPanel(lower)
-        if (settingsPanel != null) {
-            val success = deviceControlManager.openSettingsPanel(settingsPanel)
-            eventBus.log("DEVICE", "Settings panel: ${settingsPanel.label}", if (success) SystemEventLevel.INFO else SystemEventLevel.ERROR)
-            return LocalExecutionResult(
-                isHandled = true,
-                responseText = if (success) "${settingsPanel.label} খোলা হয়েছে।" else "${settingsPanel.label} খোলা যায়নি।",
-                emotion = if (success) ArohiEmotion.HAPPY else ArohiEmotion.ERROR,
-                toolName = "open_settings"
-            )
-        }
-
-        // 12. Open URL (explicit http/https requests)
-        val urlMatch = Regex("(?i)(https?://[\\w\\-./?=&%+#]+)").find(query)
-        if (urlMatch != null || (lower.contains("ওয়েবসাইট খোলো") || lower.contains("site খোলো"))) {
-            val url = urlMatch?.groupValues?.get(1)
-            val success = if (url != null) {
-                deviceControlManager.openUrl(url)
-            } else {
-                deviceControlManager.openUrl("https://www.google.com")
-            }
-            return LocalExecutionResult(
-                isHandled = true,
-                responseText = if (success) "ওয়েবসাইটটি খোলা হয়েছে।" else "ওয়েবসাইট খোলা যায়নি।",
-                emotion = if (success) ArohiEmotion.HAPPY else ArohiEmotion.ERROR,
-                toolName = "open_url"
-            )
-        }
-
-        // 13. Media playback control (real media key events)
-        val mediaAction = detectMediaAction(lower)
-        if (mediaAction != null) {
-            val success = deviceControlManager.dispatchMediaAction(mediaAction)
-            return LocalExecutionResult(
-                isHandled = true,
-                responseText = if (success) "মিডিয়া কন্ট্রোল ($mediaAction) পাঠানো হয়েছে।" else "মিডিয়া কন্ট্রোল পাঠানো যায়নি।",
-                emotion = if (success) ArohiEmotion.HAPPY else ArohiEmotion.ERROR,
-                toolName = "media_control"
-            )
-        }
-
-        // 14. Bluetooth radio (only where the platform allows)
-        if (lower.contains("ব্লুটুথ চালু") || lower.contains("bluetooth on") ||
-            lower.contains("ব্লুটুথ বন্ধ") || lower.contains("bluetooth off")
-        ) {
-            val enable = lower.contains("চালু") || lower.contains("on")
-            val success = deviceControlManager.setBluetoothEnabled(enable)
-            return LocalExecutionResult(
-                isHandled = true,
-                responseText = if (success) "ব্লুটুথ ${if (enable) "চালু" else "বন্ধ"} করার নির্দেশ পাঠানো হয়েছে।" else "ব্লুটুথ নিয়ন্ত্রণ করা যায়নি — Android এটি অনুমোদন করছে না।",
-                emotion = if (success) ArohiEmotion.HAPPY else ArohiEmotion.ERROR,
-                toolName = "toggle_bluetooth"
-            )
-        }
-
-        // 15. Current call state (real TelephonyManager data)
-        if (lower.contains("কল স্টেট") || lower.contains("কে কল") || lower.contains("call state") ||
-            lower.contains("কে ফোন") || lower.contains("who is calling")
-        ) {
-            val call = phoneStateManager.callInfo.value
-            val text = when (call.state) {
-                CallState.RINGING ->
-                    if (call.callerName.isNotBlank()) "${call.callerName} কল করছে (${call.incomingNumber})।"
-                    else "অজানা নম্বর (${call.incomingNumber}) থেকে কল আসছে।"
-                CallState.OFFHOOK -> "বর্তমানে একটি কল চলছে।"
-                CallState.IDLE -> "বর্তমানে কোনো কল নেই।"
-                else -> "কল স্টেট পড়া যাচ্ছে না (READ_PHONE_STATE পারমিশন প্রয়োজন)।"
-            }
-            return LocalExecutionResult(
-                isHandled = true,
-                responseText = text,
-                emotion = if (call.state == CallState.RINGING) ArohiEmotion.CONCERNED else ArohiEmotion.SPEAKING,
-                toolName = "check_call_state"
-            )
-        }
-
-        // 16. Current foreground app (real UsageStats when granted)
-        if (lower.contains("কোন অ্যাপ খোলা") || lower.contains("current app") || lower.contains("কোন অ্যাপ চলছে")) {
-            val label = deviceStateManager.getForegroundAppLabel()
-            return LocalExecutionResult(
-                isHandled = true,
-                responseText = if (label != null) "বর্তমানে খোলা অ্যাপ: $label।" else "বর্তমান অ্যাপ পড়া যাচ্ছে না — Usage Access পারমিশন প্রয়োজন।",
-                emotion = ArohiEmotion.FOCUSED,
-                toolName = "get_current_app"
-            )
-        }
-
         return LocalExecutionResult(isHandled = false, responseText = "")
-    }
-
-    private fun detectSettingsPanel(lower: String): DeviceControlManager.SettingsPanel? {
-        return when {
-            lower.contains("ওয়াইফাই") || lower.contains("wifi") ->
-                DeviceControlManager.SettingsPanel.WIFI
-            lower.contains("ব্লুটুথ সেটিং") || lower.contains("bluetooth setting") ->
-                DeviceControlManager.SettingsPanel.BLUETOOTH
-            lower.contains("ডিসপ্লে") || lower.contains("display") || lower.contains("ব্রাইটনেস") ->
-                DeviceControlManager.SettingsPanel.DISPLAY
-            lower.contains("সাউন্ড সেটিং") || lower.contains("sound setting") || lower.contains("রিংটোন") ->
-                DeviceControlManager.SettingsPanel.SOUND
-            lower.contains("ব্যাটারি সেটিং") || lower.contains("battery setting") ->
-                DeviceControlManager.SettingsPanel.BATTERY
-            lower.contains("নোটিফিকেশন সেটিং") || lower.contains("notification setting") ->
-                DeviceControlManager.SettingsPanel.NOTIFICATIONS
-            lower.contains("অ্যাক্সেসিবিলিটি") || lower.contains("accessibility") ->
-                DeviceControlManager.SettingsPanel.ACCESSIBILITY
-            lower.contains("অ্যাপ সেটিং") || lower.contains("app setting") ->
-                DeviceControlManager.SettingsPanel.APPS
-            lower.contains("স্টোরেজ সেটিং") || lower.contains("storage setting") ->
-                DeviceControlManager.SettingsPanel.STORAGE
-            lower.contains("ডিভাইস ইনফো") || lower.contains("device info") || lower.contains("ফোন সম্পর্কে") ->
-                DeviceControlManager.SettingsPanel.DEVICE_INFO
-            lower.contains("লোকেশন") || lower.contains("location") ->
-                DeviceControlManager.SettingsPanel.LOCATION
-            lower.contains("সিকিউরিটি") || lower.contains("security") ->
-                DeviceControlManager.SettingsPanel.SECURITY
-            lower.contains("সেটিংস খোলো") || lower.contains("সেটিং খোলো") || lower.contains("open settings") ->
-                DeviceControlManager.SettingsPanel.APPS
-            else -> null
-        }
-    }
-
-    private fun detectMediaAction(lower: String): String? {
-        return when {
-            lower.contains("গান চালাও") || lower.contains("প্লে") || lower.contains("play") -> "play"
-            lower.contains("গান থামাও") || lower.contains("পজ") || lower.contains("pause") -> "pause"
-            lower.contains("পরের গান") || lower.contains("next") -> "next"
-            lower.contains("আগের গান") || lower.contains("previous") || lower.contains("prev") -> "previous"
-            else -> null
-        }
     }
 
     /**

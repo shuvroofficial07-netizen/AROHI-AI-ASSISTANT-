@@ -1,12 +1,5 @@
 package com.example.ui.screens
 
-import android.content.Intent
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -85,40 +78,6 @@ fun MemoryRoutinesScreen(
     var selectedTab by remember { mutableIntStateOf(0) }
     var showAddMemoryDialog by remember { mutableStateOf(false) }
     var showAddRoutineDialog by remember { mutableStateOf(false) }
-    var memoryBeingEdited by remember { mutableStateOf<MemoryEntity?>(null) }
-    var routineBeingEdited by remember { mutableStateOf<RoutineEntity?>(null) }
-    val context = LocalContext.current
-
-    // Real JSON export via the Android share sheet
-    fun exportMemories() {
-        val json = viewModel.exportMemories() ?: return
-        val sendIntent = Intent(Intent.ACTION_SEND).apply {
-            type = "application/json"
-            putExtra(Intent.EXTRA_TEXT, json)
-            putExtra(Intent.EXTRA_TITLE, "arohi_memories.json")
-        }
-        try {
-            context.startActivity(Intent.createChooser(sendIntent, "Export Arohi Memories"))
-        } catch (e: Exception) {
-            // Ignored
-        }
-    }
-
-    // Real JSON import from a user-chosen text file
-    val importLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent()
-    ) { uri ->
-        if (uri != null) {
-            try {
-                val json = context.contentResolver.openInputStream(uri)?.bufferedReader()?.readText()
-                if (!json.isNullOrBlank()) {
-                    viewModel.importMemoriesFromJson(json)
-                }
-            } catch (e: Exception) {
-                // Ignored
-            }
-        }
-    }
 
     Column(
         modifier = modifier
@@ -139,20 +98,6 @@ fun MemoryRoutinesScreen(
         )
 
         Spacer(modifier = Modifier.height(12.dp))
-
-        // Memory center action strip: REMEMBER / EXPORT / IMPORT / CLEAR ALL
-        if (selectedTab == 0) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                MemoryActionChip("+ Remember", CyanPrimary) { showAddMemoryDialog = true }
-                MemoryActionChip("Export", EmeraldSuccess, enabled = memories.isNotEmpty()) { exportMemories() }
-                MemoryActionChip("Import", VioletBright) { importLauncher.launch("text/*") }
-                MemoryActionChip("Clear All", MagentaAccent, enabled = memories.isNotEmpty()) { viewModel.clearAllMemories() }
-            }
-            Spacer(modifier = Modifier.height(12.dp))
-        }
 
         // Tabs
         TabRow(
@@ -183,75 +128,32 @@ fun MemoryRoutinesScreen(
         Box(modifier = Modifier.weight(1f)) {
             if (selectedTab == 0) {
                 // Memories Tab
-                if (memories.isEmpty()) {
-                    Column(
-                        modifier = Modifier.fillMaxSize(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Text(
-                            text = "এখনো কোনো স্মৃতি সংরক্ষিত নেই",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(memories, key = { it.id }) { memory ->
+                        MemoryItemCard(
+                            memory = memory,
+                            onDelete = { viewModel.deleteMemory(memory.id) }
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "বলুন \"মনে রাখো আমার জন্মদিন ১৫ আগস্ট\" — আরোহী সেটি সেভ করবে।",
-                            fontSize = 11.sp,
-                            color = TextMuted,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                        )
-                    }
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(memories, key = { it.id }) { memory ->
-                            MemoryItemCard(
-                                memory = memory,
-                                onEdit = { memoryBeingEdited = memory },
-                                onDelete = { viewModel.deleteMemory(memory.id) }
-                            )
-                        }
                     }
                 }
             } else {
                 // Routines Tab
-                if (routines.isEmpty()) {
-                    Column(
-                        modifier = Modifier.fillMaxSize(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Text(
-                            text = "কোনো রুটিন নেই",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    items(routines, key = { it.id }) { routine ->
+                        RoutineItemCard(
+                            routine = routine,
+                            onToggle = { viewModel.toggleRoutine(routine.id, it) },
+                            onRun = {
+                                viewModel.sendUserMessage(routine.triggerPhrase, isVoice = true)
+                            },
+                            onDelete = { viewModel.deleteRoutine(routine.id) }
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "নতুন রুটিন তৈরি করতে + বাটনে ট্যাপ করুন।",
-                            fontSize = 11.sp,
-                            color = TextMuted
-                        )
-                    }
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        items(routines, key = { it.id }) { routine ->
-                            RoutineItemCard(
-                                routine = routine,
-                                onToggle = { viewModel.toggleRoutine(routine.id, it) },
-                                onRun = { viewModel.runRoutine(routine.id) },
-                                onEdit = { routineBeingEdited = routine },
-                                onDelete = { viewModel.deleteRoutine(routine.id) }
-                            )
-                        }
                     }
                 }
             }
@@ -283,28 +185,6 @@ fun MemoryRoutinesScreen(
         )
     }
 
-    memoryBeingEdited?.let { memory ->
-        EditMemoryDialog(
-            memory = memory,
-            onDismiss = { memoryBeingEdited = null },
-            onConfirm = { cat, key, value ->
-                viewModel.editMemory(memory.id, cat, key, value)
-                memoryBeingEdited = null
-            }
-        )
-    }
-
-    routineBeingEdited?.let { routine ->
-        EditRoutineDialog(
-            routine = routine,
-            onDismiss = { routineBeingEdited = null },
-            onConfirm = { name, desc, trigger, actions ->
-                viewModel.editRoutine(routine.id, name, desc, trigger, actions)
-                routineBeingEdited = null
-            }
-        )
-    }
-
     if (showAddRoutineDialog) {
         AddRoutineDialog(
             onDismiss = { showAddRoutineDialog = false },
@@ -317,33 +197,8 @@ fun MemoryRoutinesScreen(
 }
 
 @Composable
-private fun MemoryActionChip(
-    label: String,
-    tint: Color,
-    enabled: Boolean = true,
-    onClick: () -> Unit
-) {
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(999.dp))
-            .background(tint.copy(alpha = if (enabled) 0.12f else 0.05f))
-            .border(1.dp, tint.copy(alpha = if (enabled) 0.4f else 0.12f), RoundedCornerShape(999.dp))
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 6.dp)
-    ) {
-        Text(
-            text = label,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-            color = if (enabled) tint else TextMuted
-        )
-    }
-}
-
-@Composable
 fun MemoryItemCard(
     memory: MemoryEntity,
-    onEdit: () -> Unit = {},
     onDelete: () -> Unit
 ) {
     GlassCard(modifier = Modifier.fillMaxWidth()) {
@@ -388,14 +243,6 @@ fun MemoryItemCard(
                     color = TextSecondary
                 )
             }
-            IconButton(onClick = onEdit) {
-                Icon(
-                    imageVector = Icons.Default.Edit,
-                    contentDescription = "Edit memory",
-                    tint = CyanPrimary,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
             IconButton(onClick = onDelete) {
                 Icon(
                     imageVector = Icons.Default.Delete,
@@ -413,7 +260,6 @@ fun RoutineItemCard(
     routine: RoutineEntity,
     onToggle: (Boolean) -> Unit,
     onRun: () -> Unit,
-    onEdit: () -> Unit = {},
     onDelete: () -> Unit
 ) {
     GlassCard(modifier = Modifier.fillMaxWidth()) {
@@ -469,17 +315,8 @@ fun RoutineItemCard(
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically
+                horizontalArrangement = Arrangement.End
             ) {
-                IconButton(onClick = onEdit) {
-                    Icon(
-                        imageVector = Icons.Default.Edit,
-                        contentDescription = "Edit routine",
-                        tint = CyanPrimary,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
                 Button(
                     onClick = onRun,
                     colors = ButtonDefaults.buttonColors(containerColor = ArohiDarkSurface),
@@ -599,126 +436,6 @@ fun AddRoutineDialog(
                 colors = ButtonDefaults.buttonColors(containerColor = CyanPrimary)
             ) {
                 Text("তৈরি করুন", color = ArohiDarkSurface)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("বাতিল", color = TextMuted)
-            }
-        }
-    )
-}
-
-@Composable
-fun EditMemoryDialog(
-    memory: MemoryEntity,
-    onDismiss: () -> Unit,
-    onConfirm: (category: String, key: String, value: String) -> Unit
-) {
-    var key by remember(memory.id) { mutableStateOf(memory.key) }
-    var value by remember(memory.id) { mutableStateOf(memory.value) }
-    var category by remember(memory.id) { mutableStateOf(memory.category) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = ArohiSurfaceCard,
-        title = { Text("স্মৃতি সম্পাদনা (Edit Memory)", color = CyanPrimary) },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = category,
-                    onValueChange = { category = it },
-                    label = { Text("বিভাগ (Category)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = key,
-                    onValueChange = { key = it },
-                    label = { Text("কী / শিরোনাম (Key)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = value,
-                    onValueChange = { value = it },
-                    label = { Text("বিবরণ / তথ্য (Value)") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    if (key.isNotBlank() && value.isNotBlank()) {
-                        onConfirm(category, key, value)
-                    }
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = CyanPrimary)
-            ) {
-                Text("সেভ করুন", color = ArohiDarkSurface)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("বাতিল", color = TextMuted)
-            }
-        }
-    )
-}
-
-@Composable
-fun EditRoutineDialog(
-    routine: RoutineEntity,
-    onDismiss: () -> Unit,
-    onConfirm: (name: String, desc: String, trigger: String, actions: String) -> Unit
-) {
-    var name by remember(routine.id) { mutableStateOf(routine.name) }
-    var desc by remember(routine.id) { mutableStateOf(routine.description) }
-    var trigger by remember(routine.id) { mutableStateOf(routine.triggerPhrase) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = ArohiSurfaceCard,
-        title = { Text("রুটিন সম্পাদনা (Edit Routine)", color = CyanPrimary) },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("রুটিনের নাম (Name)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = desc,
-                    onValueChange = { desc = it },
-                    label = { Text("সংক্ষিপ্ত বিবরণ (Description)") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = trigger,
-                    onValueChange = { trigger = it },
-                    label = { Text("ভয়েস ট্রিগার বাক্য (Voice Trigger)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    if (name.isNotBlank() && trigger.isNotBlank()) {
-                        onConfirm(name, desc, trigger, routine.actionsJson)
-                    }
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = CyanPrimary)
-            ) {
-                Text("সেভ করুন", color = ArohiDarkSurface)
             }
         },
         dismissButton = {
