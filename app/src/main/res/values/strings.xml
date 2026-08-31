@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">Arohi AI Assistant</string>
+    <string name="accessibility_service_label">Arohi AI Accessibility Controller</string>
+    <string name="accessibility_service_description">Enables Arohi AI to understand screen content, navigate apps, and execute voice-directed touches and scrolls on your behalf.</string>
+    <string name="notification_service_label">Arohi AI Notification Intelligence</string>
+    <string name="background_service_label">Arohi AI Background Operating Service</string>
+</resources>

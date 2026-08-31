@@ -1,0 +1,7 @@
+{
+  "name": "Arohi AI Assistant",
+  "description": "Arohi AI Assistant by Shù Vrô — Version 13.97.7 Autonomous Android AI Operating Layer",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
