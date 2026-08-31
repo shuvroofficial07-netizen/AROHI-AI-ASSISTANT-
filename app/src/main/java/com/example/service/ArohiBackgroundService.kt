@@ -10,8 +10,10 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import com.example.ArohiApplication
 import com.example.MainActivity
 import com.example.R
+import com.example.engine.SystemEventLevel
 
 class ArohiBackgroundService : Service() {
 
@@ -51,6 +53,7 @@ class ArohiBackgroundService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
             isRunning = false
+            ArohiOverlayService.stopService(this)
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return START_NOT_STICKY
@@ -59,6 +62,18 @@ class ArohiBackgroundService : Service() {
         isRunning = true
         val notification = buildForegroundNotification()
         startForeground(NOTIFICATION_ID, notification)
+
+        // Real floating indicator — only when Android overlay permission exists
+        if (ArohiOverlayService.canDrawOverlays(this)) {
+            ArohiOverlayService.startService(this)
+        }
+        val app = applicationContext as? ArohiApplication
+        app?.eventBus?.log(
+            "SERVICE",
+            "Background assistant running" +
+                if (!ArohiOverlayService.canDrawOverlays(this)) " (overlay not permitted)" else "",
+            SystemEventLevel.SUCCESS
+        )
         return START_STICKY
     }
 
@@ -67,6 +82,9 @@ class ArohiBackgroundService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         isRunning = false
+        ArohiOverlayService.stopService(this)
+        val app = applicationContext as? ArohiApplication
+        app?.eventBus?.log("SERVICE", "Background assistant stopped", SystemEventLevel.WARNING)
     }
 
     private fun createNotificationChannel() {

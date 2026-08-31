@@ -34,10 +34,15 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.TabRowDefaults
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.local.entity.NotificationEntity
 import com.example.ui.components.GlassCard
+import com.example.ui.theme.AmberWarning
 import com.example.ui.theme.CyanPrimary
 import com.example.ui.theme.EmeraldSuccess
 import com.example.ui.theme.MagentaAccent
@@ -73,10 +79,20 @@ fun NotificationCenterScreen(
     val notifications by viewModel.notifications.collectAsState()
     val unreadCount by viewModel.unreadNotifCount.collectAsState()
     val diagnostics by viewModel.diagnostics.collectAsState()
+    val privateMode by viewModel.privateModeFlow.collectAsState()
     val context = LocalContext.current
 
     // Real data only — no mock seeds. Empty state guides the user to grant access.
-    val displayNotifications = notifications
+    var selectedTab by remember { mutableIntStateOf(0) }
+
+    val messagingPackages = setOf(
+        "whatsapp", "messenger", "messages", "sms", "telegram", "instagram",
+        "signal", "imo", "viber", "snapchat", "discord", "line", "wechat"
+    )
+    val displayNotifications = when (selectedTab) {
+        1 -> notifications.filter { n -> messagingPackages.any { n.appName.contains(it, ignoreCase = true) || n.packageName.contains(it, ignoreCase = true) } }
+        else -> notifications
+    }
     val unreadNotifications = remember(notifications) { notifications.filter { !it.isRead } }
 
     // Real AI summary derived from actually captured notifications
@@ -133,11 +149,44 @@ fun NotificationCenterScreen(
                 Spacer(modifier = Modifier.width(12.dp))
 
                 Text(
-                    text = "Notifications",
+                    text = "AROHI INBOX",
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White
                 )
+
+                if (unreadCount > 0) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(MagentaAccent)
+                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "$unreadCount",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+                }
+
+                if (privateMode) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "PRIVATE",
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace,
+                        color = AmberWarning,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(AmberWarning.copy(alpha = 0.15f))
+                            .padding(horizontal = 4.dp, vertical = 2.dp)
+                    )
+                }
             }
 
             IconButton(
@@ -240,6 +289,33 @@ fun NotificationCenterScreen(
 
         Spacer(modifier = Modifier.height(18.dp))
 
+        // Inbox tabs: ALL notifications vs real captured MESSAGES
+        TabRow(
+            selectedTabIndex = selectedTab,
+            containerColor = Color.Transparent,
+            contentColor = CyanPrimary,
+            indicator = { tabPositions ->
+                TabRowDefaults.SecondaryIndicator(
+                    Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
+                    color = CyanPrimary
+                )
+            },
+            divider = {}
+        ) {
+            Tab(
+                selected = selectedTab == 0,
+                onClick = { selectedTab = 0 },
+                text = { Text("ALL", fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace) }
+            )
+            Tab(
+                selected = selectedTab == 1,
+                onClick = { selectedTab = 1 },
+                text = { Text("MESSAGES", fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace) }
+            )
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
         // "Recent (4)" and "Mark all read" row
         Row(
             modifier = Modifier
@@ -262,8 +338,17 @@ fun NotificationCenterScreen(
                     fontWeight = FontWeight.SemiBold,
                     color = VioletBright,
                     modifier = Modifier
-                        .clickable { viewModel.clearAllNotifications() }
+                        .clickable { viewModel.markAllNotificationsRead() }
                         .testTag("mark_all_read_btn")
+                )
+            } else if (displayNotifications.isNotEmpty()) {
+                Text(
+                    text = "Clear inbox",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextMuted,
+                    modifier = Modifier
+                        .clickable { viewModel.clearAllNotifications() }
                 )
             }
         }
@@ -328,10 +413,12 @@ fun NotificationCenterScreen(
                 items(displayNotifications, key = { it.id }) { item ->
                     NotificationRowCard(
                         notification = item,
-                        onSpeak = {
-                            viewModel.ttsManager.speak("${item.appName} থেকে নোটিফিকেশন: ${item.title}। ${item.text}")
-                        },
-                        onMarkRead = { viewModel.markNotificationRead(item.id) }
+                        privateMode = privateMode,
+                        onSpeak = { viewModel.announceNotification(item) },
+                        onMarkRead = { viewModel.markNotificationRead(item.id) },
+                        onOpenApp = { viewModel.openNotificationApp(item) },
+                        onDismiss = { viewModel.dismissNotification(item) },
+                        onSummarize = { viewModel.summarizeNotification(item) }
                     )
                 }
             }
@@ -342,8 +429,12 @@ fun NotificationCenterScreen(
 @Composable
 fun NotificationRowCard(
     notification: NotificationEntity,
+    privateMode: Boolean,
     onSpeak: () -> Unit,
-    onMarkRead: () -> Unit
+    onMarkRead: () -> Unit,
+    onOpenApp: () -> Unit,
+    onDismiss: () -> Unit,
+    onSummarize: () -> Unit
 ) {
     // Pick app icon & color based on app name
     val (appIcon, iconColor, iconBg) = when {
@@ -375,7 +466,7 @@ fun NotificationRowCard(
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        Color(0x141E293B),
+                        if (notification.isRead) Color(0x0F1E293B) else Color(0x141E293B),
                         Color(0x220D1222)
                     )
                 )
@@ -384,71 +475,148 @@ fun NotificationRowCard(
             .clickable { onMarkRead() }
             .padding(12.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.Top
-        ) {
-            // App Icon Circle
-            Box(
-                modifier = Modifier
-                    .size(38.dp)
-                    .clip(CircleShape)
-                    .background(iconBg)
-                    .border(1.dp, iconColor.copy(alpha = 0.4f), CircleShape),
-                contentAlignment = Alignment.Center
+        Column {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Top
             ) {
-                Icon(
-                    imageVector = appIcon,
-                    contentDescription = notification.appName,
-                    tint = iconColor,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                // App Icon Circle
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(iconBg)
+                        .border(1.dp, iconColor.copy(alpha = 0.4f), CircleShape),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = notification.appName,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-
-                    Text(
-                        text = timeAgo,
-                        fontSize = 10.sp,
-                        color = TextMuted
+                    Icon(
+                        imageVector = appIcon,
+                        contentDescription = notification.appName,
+                        tint = iconColor,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
 
-                Spacer(modifier = Modifier.height(2.dp))
+                Spacer(modifier = Modifier.width(12.dp))
 
-                Text(
-                    text = "${notification.title}: ${notification.text}",
-                    fontSize = 12.sp,
-                    color = TextSecondary,
-                    maxLines = 2
-                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = notification.appName,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            if (!notification.isRead) {
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .size(7.dp)
+                                        .clip(CircleShape)
+                                        .background(MagentaAccent)
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = timeAgo,
+                            fontSize = 10.sp,
+                            color = TextMuted
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    // Private Mode hides real preview content
+                    Text(
+                        text = if (privateMode && !notification.isRead)
+                            "• • • •  Hidden by Private Mode"
+                        else
+                            "${notification.title}: ${notification.text}",
+                        fontSize = 12.sp,
+                        color = TextSecondary,
+                        maxLines = 2
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(6.dp))
+
+                IconButton(
+                    onClick = onSpeak,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.VolumeUp,
+                        contentDescription = "Speak notification",
+                        tint = CyanPrimary,
+                        modifier = Modifier.size(15.dp)
+                    )
+                }
             }
 
-            Spacer(modifier = Modifier.width(6.dp))
-
-            IconButton(
-                onClick = onSpeak,
-                modifier = Modifier.size(28.dp)
+            // Verified action row: open the posting app, summarize, dismiss
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Default.VolumeUp,
-                    contentDescription = "Speak notification",
-                    tint = CyanPrimary,
-                    modifier = Modifier.size(15.dp)
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onSummarize() }
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AutoAwesome,
+                        contentDescription = "Summarize",
+                        tint = VioletBright,
+                        modifier = Modifier.size(12.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Summarize",
+                        fontSize = 10.sp,
+                        color = VioletBright
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onOpenApp() }
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = "Open",
+                        fontSize = 10.sp,
+                        color = CyanPrimary
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onDismiss() }
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = "Dismiss",
+                        fontSize = 10.sp,
+                        color = MagentaAccent
+                    )
+                }
             }
         }
     }

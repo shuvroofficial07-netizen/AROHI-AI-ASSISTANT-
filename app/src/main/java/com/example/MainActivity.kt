@@ -41,6 +41,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -60,11 +61,19 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.example.ui.screens.AboutSupportScreen
+import com.example.ui.screens.AppsScreen
 import com.example.ui.screens.AssistantChatScreen
+import com.example.ui.screens.BrainScreen
+import com.example.ui.screens.CallsScreen
+import com.example.ui.screens.ContactsScreen
 import com.example.ui.screens.DeviceDashboardScreen
+import com.example.ui.screens.FirstRunSetupScreen
+import com.example.ui.screens.GeminiControlCenterScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.MemoryRoutinesScreen
 import com.example.ui.screens.NotificationCenterScreen
+import com.example.ui.screens.PermissionsScreen
 import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.SmartTasksScreen
 import com.example.ui.screens.SplashScreen
@@ -93,6 +102,14 @@ sealed class Screen(
     object Tasks : Screen("tasks", "Tasks", Icons.Filled.Checklist, Icons.Outlined.Checklist)
     object Vision : Screen("vision", "Vision", Icons.Filled.RemoveRedEye, Icons.Outlined.RemoveRedEye)
     object Diagnostics : Screen("diagnostics", "Health", Icons.Filled.PhoneAndroid, Icons.Outlined.PhoneAndroid)
+    object FirstRunSetup : Screen("first_run_setup", "Setup", Icons.Filled.Home, Icons.Outlined.Home)
+    object Permissions : Screen("permissions", "Permissions", Icons.Filled.Settings, Icons.Outlined.Settings)
+    object Apps : Screen("apps", "Apps", Icons.Filled.Checklist, Icons.Outlined.Checklist)
+    object Calls : Screen("calls", "Calls", Icons.Filled.Chat, Icons.Outlined.Chat)
+    object Contacts : Screen("contacts", "Contacts", Icons.Filled.Chat, Icons.Outlined.Chat)
+    object Brain : Screen("brain", "Brain", Icons.Filled.Home, Icons.Outlined.Home)
+    object About : Screen("about", "About", Icons.Filled.Settings, Icons.Outlined.Settings)
+    object GeminiControl : Screen("gemini_control", "Gemini AI", Icons.Filled.Settings, Icons.Outlined.Settings)
 }
 
 class MainActivity : ComponentActivity() {
@@ -135,7 +152,7 @@ fun ArohiMainApp(
         containerColor = ArohiBlack,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
-            if (currentRoute != Screen.Splash.route) {
+            if (currentRoute != Screen.Splash.route && currentRoute != Screen.FirstRunSetup.route) {
                 // Sleek Floating Glass Dock Bar
                 Box(
                     modifier = Modifier
@@ -225,16 +242,36 @@ fun ArohiMainApp(
             }
         }
     ) { innerPadding ->
+        val firstLaunch by viewModel.firstLaunchFlow.collectAsState()
         NavHost(
             navController = navController,
-            startDestination = Screen.Home.route,
+            startDestination = Screen.Splash.route,
             modifier = Modifier.padding(innerPadding)
         ) {
             composable(Screen.Splash.route) {
                 SplashScreen(
+                    viewModel = viewModel,
                     onFinish = {
+                        // First launch → guided setup wizard; otherwise straight home
+                        if (firstLaunch) {
+                            navController.navigate(Screen.FirstRunSetup.route) {
+                                popUpTo(Screen.Splash.route) { inclusive = true }
+                            }
+                        } else {
+                            navController.navigate(Screen.Home.route) {
+                                popUpTo(Screen.Splash.route) { inclusive = true }
+                            }
+                        }
+                    }
+                )
+            }
+            composable(Screen.FirstRunSetup.route) {
+                FirstRunSetupScreen(
+                    viewModel = viewModel,
+                    onDone = {
+                        viewModel.markSetupComplete()
                         navController.navigate(Screen.Home.route) {
-                            popUpTo(Screen.Splash.route) { inclusive = true }
+                            popUpTo(Screen.FirstRunSetup.route) { inclusive = true }
                         }
                     }
                 )
@@ -250,7 +287,54 @@ fun ArohiMainApp(
                     onNavigateToRoutines = { navController.navigate(Screen.Memories.route) },
                     onNavigateToMemory = { navController.navigate(Screen.Memories.route) },
                     onNavigateToSettings = { navController.navigate(Screen.Settings.route) },
-                    onNavigateToDiagnostics = { navController.navigate(Screen.Diagnostics.route) }
+                    onNavigateToDiagnostics = { navController.navigate(Screen.Diagnostics.route) },
+                    onNavigateToApps = { navController.navigate(Screen.Apps.route) },
+                    onNavigateToCalls = { navController.navigate(Screen.Calls.route) },
+                    onNavigateToBrain = { navController.navigate(Screen.Brain.route) },
+                    onNavigateToAbout = { navController.navigate(Screen.About.route) }
+                )
+            }
+            composable(Screen.Brain.route) {
+                BrainScreen(
+                    viewModel = viewModel,
+                    onBack = { navController.popBackStack() }
+                )
+            }
+            composable(Screen.Apps.route) {
+                AppsScreen(
+                    viewModel = viewModel,
+                    onBack = { navController.popBackStack() }
+                )
+            }
+            composable(Screen.Calls.route) {
+                CallsScreen(
+                    viewModel = viewModel,
+                    onBack = { navController.popBackStack() },
+                    onNavigateToContacts = { navController.navigate(Screen.Contacts.route) }
+                )
+            }
+            composable(Screen.Contacts.route) {
+                ContactsScreen(
+                    viewModel = viewModel,
+                    onBack = { navController.popBackStack() }
+                )
+            }
+            composable(Screen.Permissions.route) {
+                PermissionsScreen(
+                    viewModel = viewModel,
+                    onBack = { navController.popBackStack() }
+                )
+            }
+            composable(Screen.About.route) {
+                AboutSupportScreen(
+                    viewModel = viewModel,
+                    onBack = { navController.popBackStack() }
+                )
+            }
+            composable(Screen.GeminiControl.route) {
+                GeminiControlCenterScreen(
+                    viewModel = viewModel,
+                    onBack = { navController.popBackStack() }
                 )
             }
             composable(Screen.Tasks.route) {
@@ -291,7 +375,15 @@ fun ArohiMainApp(
                 )
             }
             composable(Screen.Settings.route) {
-                SettingsScreen(viewModel = viewModel)
+                SettingsScreen(
+                    viewModel = viewModel,
+                    onNavigateToPermissions = { navController.navigate(Screen.Permissions.route) },
+                    onNavigateToGemini = { navController.navigate(Screen.GeminiControl.route) },
+                    onNavigateToAbout = { navController.navigate(Screen.About.route) },
+                    onNavigateToBrain = { navController.navigate(Screen.Brain.route) },
+                    onNavigateToApps = { navController.navigate(Screen.Apps.route) },
+                    onNavigateToCalls = { navController.navigate(Screen.Calls.route) }
+                )
             }
         }
     }

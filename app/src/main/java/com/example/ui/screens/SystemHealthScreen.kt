@@ -265,6 +265,156 @@ fun SystemHealthScreen(
             Spacer(modifier = Modifier.height(10.dp))
         }
 
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // ERROR CENTER + real-time event stream (every entry is a real system occurrence)
+        val events by viewModel.systemEvents.collectAsState()
+        val errorEvents = events.filter {
+            it.level == com.example.engine.SystemEventLevel.ERROR || it.level == com.example.engine.SystemEventLevel.WARNING
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.ErrorOutline,
+                contentDescription = null,
+                tint = MagentaAccent,
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = "ERROR CENTER",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 2.sp,
+                color = TextSecondary
+            )
+            Spacer(modifier = Modifier.weight(1f))
+            if (events.isNotEmpty()) {
+                Text(
+                    text = "Clear",
+                    fontSize = 10.sp,
+                    color = VioletBright,
+                    modifier = Modifier.clickable { viewModel.clearSystemEvents() }
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        if (errorEvents.isEmpty()) {
+            Text(
+                text = "No errors recorded. Entries appear here only when a real subsystem logs a warning or error.",
+                fontSize = 11.sp,
+                color = TextMuted
+            )
+        } else {
+            errorEvents.take(10).forEach { event ->
+                GlassCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    borderColor = if (event.level == com.example.engine.SystemEventLevel.ERROR)
+                        MagentaAccent.copy(alpha = 0.4f) else Color(0x33F59E0B)
+                ) {
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(7.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        if (event.level == com.example.engine.SystemEventLevel.ERROR) MagentaAccent
+                                        else Color(0xFFF59E0B)
+                                    )
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "${event.level.name} • ${event.component}",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                color = if (event.level == com.example.engine.SystemEventLevel.ERROR) MagentaAccent
+                                else Color(0xFFF59E0B),
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                text = event.formattedTime(),
+                                fontSize = 9.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = TextMuted
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = event.message,
+                            fontSize = 11.sp,
+                            color = TextSecondary,
+                            lineHeight = 15.sp
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // Full real-time event stream
+        Text(
+            text = "EVENT STREAM",
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 2.sp,
+            color = TextSecondary
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        if (events.isEmpty()) {
+            Text(
+                text = "No events recorded yet.",
+                fontSize = 11.sp,
+                color = TextMuted
+            )
+        } else {
+            events.take(20).forEach { event ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 3.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .padding(top = 4.dp)
+                            .clip(CircleShape)
+                            .background(
+                                when (event.level) {
+                                    com.example.engine.SystemEventLevel.SUCCESS -> EmeraldSuccess
+                                    com.example.engine.SystemEventLevel.WARNING -> Color(0xFFF59E0B)
+                                    com.example.engine.SystemEventLevel.ERROR -> MagentaAccent
+                                    com.example.engine.SystemEventLevel.INFO -> CyanPrimary
+                                }
+                            )
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text(
+                            text = event.message,
+                            fontSize = 11.sp,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "${event.component} • ${event.formattedTime()}",
+                            fontSize = 9.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = TextMuted
+                        )
+                    }
+                }
+            }
+        }
+
         Spacer(modifier = Modifier.height(24.dp))
     }
 }

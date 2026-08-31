@@ -1,10 +1,13 @@
 package com.example.device
 
 import android.app.ActivityManager
+import android.app.AppOpsManager
+import android.app.usage.UsageStatsManager
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.hardware.camera2.CameraAccessException
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.media.AudioManager
@@ -13,9 +16,10 @@ import android.net.NetworkCapabilities
 import android.os.BatteryManager
 import android.os.Build
 import android.os.Environment
+import android.os.PowerManager
 import android.os.StatFs
+import android.os.SystemClock
 import android.provider.Settings
-import java.io.File
 
 data class DeviceTelemetry(
     val batteryPercent: Int,
@@ -33,7 +37,11 @@ data class DeviceTelemetry(
     val brightnessPercent: Int,
     val deviceName: String,
     val androidVersion: String,
-    val apiLevel: Int
+    val apiLevel: Int,
+    val bluetoothState: String,
+    val isScreenOn: Boolean,
+    val uptimeMillis: Long,
+    val foregroundAppLabel: String?
 )
 
 class DeviceStateManager(private val context: Context) {
@@ -41,6 +49,8 @@ class DeviceStateManager(private val context: Context) {
     private val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager
     private val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
     private val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+    private val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+    private val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
 
     private var isTorchActive = false
     private var cameraIdWithFlash: String? = null
@@ -89,8 +99,87 @@ class DeviceStateManager(private val context: Context) {
             brightnessPercent = brightness,
             deviceName = "${Build.MANUFACTURER} ${Build.MODEL}".trim(),
             androidVersion = "Android ${Build.VERSION.RELEASE}",
-            apiLevel = Build.VERSION.SDK_INT
+            apiLevel = Build.VERSION.SDK_INT,
+            bluetoothState = getBluetoothState(),
+            isScreenOn = powerManager?.isInteractive == true,
+            uptimeMillis = SystemClock.elapsedRealtime(),
+            foregroundAppLabel = getForegroundAppLabel()
         )
+    }
+
+    /**
+     * Real Bluetooth radio state. Returns "Unavailable" when the device has
+     * no Bluetooth hardware or the state cannot be read.
+     */
+    fun getBluetoothState(): String {
+        return try {
+            val adapter = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2) {
+                val btManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
+                btManager?.adapter
+            } else {
+                @Suppress("DEPRECATION")
+                BluetoothAdapter.getDefaultAdapter()
+            }
+            when (adapter?.state) {
+                BluetoothAdapter.STATE_ON -> "On"
+                BluetoothAdapter.STATE_OFF -> "Off"
+                BluetoothAdapter.STATE_TURNING_ON -> "Turning on"
+                BluetoothAdapter.STATE_TURNING_OFF -> "Turning off"
+                else -> "Unavailable"
+            }
+        } catch (e: Exception) {
+            "Unavailable"
+        }
+    }
+
+    /**
+     * Foreground application label via UsageStatsManager. Requires the
+     * special "Usage access" permission; returns null when not granted so the
+     * UI can honestly show "Unavailable".
+     */
+    fun getForegroundAppLabel(): String? {
+        return try {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP_MR1) return null
+            if (!hasUsageAccessPermission()) return null
+            val endTime = System.currentTimeMillis()
+            val beginTime = endTime - 60_000L
+            val stats = usageStatsManager
+                ?.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, beginTime, endTime)
+                ?.filter { it.lastTimeUsed > 0 }
+                ?.maxByOrNull { it.lastTimeUsed }
+                ?: return null
+            val appInfo = try {
+                context.packageManager.getApplicationInfo(stats.packageName, 0)
+            } catch (e: Exception) {
+                null
+            }
+            appInfo?.let { context.packageManager.getApplicationLabel(it).toString() }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    fun hasUsageAccessPermission(): Boolean {
+        return try {
+            val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as? AppOpsManager ?: return false
+            val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                appOps.unsafeCheckOpNoThrow(
+                    AppOpsManager.OPSTR_GET_USAGE_STATS,
+                    android.os.Process.myUid(),
+                    context.packageName
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                appOps.checkOpNoThrow(
+                    AppOpsManager.OPSTR_GET_USAGE_STATS,
+                    android.os.Process.myUid(),
+                    context.packageName
+                )
+            }
+            mode == AppOpsManager.MODE_ALLOWED
+        } catch (e: Exception) {
+            false
+        }
     }
 
     fun getBatteryInfo(): Triple<Int, Boolean, String> {
@@ -208,11 +297,11 @@ class DeviceStateManager(private val context: Context) {
             val brightness = Settings.System.getInt(
                 context.contentResolver,
                 Settings.System.SCREEN_BRIGHTNESS,
-                128
+                -1
             )
-            (brightness * 100) / 255
+            if (brightness < 0) -1 else (brightness * 100) / 255
         } catch (e: Exception) {
-            50
+            -1 // UI must show "Unavailable" instead of an invented value
         }
     }
 }

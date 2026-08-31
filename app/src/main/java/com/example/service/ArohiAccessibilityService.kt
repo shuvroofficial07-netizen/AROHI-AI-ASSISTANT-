@@ -51,6 +51,8 @@ class ArohiAccessibilityService : AccessibilityService() {
             notificationTimeout = 100
         }
         serviceInfo = info
+        val app = applicationContext as? com.example.ArohiApplication
+        app?.eventBus?.log("AUTOMATION", "Accessibility controller connected", com.example.engine.SystemEventLevel.SUCCESS)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -75,6 +77,38 @@ class ArohiAccessibilityService : AccessibilityService() {
         for (node in nodes) {
             if (performClickOnNodeOrParent(node)) {
                 return true
+            }
+        }
+        return false
+    }
+
+    fun longClickByText(query: String): Boolean {
+        val root = rootInActiveWindow ?: return false
+        val nodes = root.findAccessibilityNodeInfosByText(query)
+        for (node in nodes) {
+            var current: AccessibilityNodeInfo? = node
+            while (current != null) {
+                if (current.isLongClickable &&
+                    current.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK)
+                ) {
+                    return true
+                }
+                current = current.parent
+            }
+        }
+        return false
+    }
+
+    /** Types text into the first focused editable field found on screen. */
+    fun setTextByQuery(query: String, text: String): Boolean {
+        val root = rootInActiveWindow ?: return false
+        val nodes = root.findAccessibilityNodeInfosByText(query)
+        val targets = if (nodes.isEmpty()) listOf(root) else nodes.toList()
+        for (node in targets) {
+            if (node.isEditable) {
+                val args = android.os.Bundle()
+                args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+                return node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
             }
         }
         return false
