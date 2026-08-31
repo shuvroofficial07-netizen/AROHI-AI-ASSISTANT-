@@ -66,6 +66,7 @@ import com.example.ui.screens.AppsScreen
 import com.example.ui.screens.AssistantChatScreen
 import com.example.ui.screens.BrainScreen
 import com.example.ui.screens.CallsScreen
+import com.example.ui.screens.ContactsScreen
 import com.example.ui.screens.DeviceDashboardScreen
 import com.example.ui.screens.FirstRunSetupScreen
 import com.example.ui.screens.GeminiControlCenterScreen
@@ -105,6 +106,7 @@ sealed class Screen(
     object Permissions : Screen("permissions", "Permissions", Icons.Filled.Settings, Icons.Outlined.Settings)
     object Apps : Screen("apps", "Apps", Icons.Filled.Checklist, Icons.Outlined.Checklist)
     object Calls : Screen("calls", "Calls", Icons.Filled.Chat, Icons.Outlined.Chat)
+    object Contacts : Screen("contacts", "Contacts", Icons.Filled.Chat, Icons.Outlined.Chat)
     object Brain : Screen("brain", "Brain", Icons.Filled.Home, Icons.Outlined.Home)
     object About : Screen("about", "About", Icons.Filled.Settings, Icons.Outlined.Settings)
     object GeminiControl : Screen("gemini_control", "Gemini AI", Icons.Filled.Settings, Icons.Outlined.Settings)
@@ -306,6 +308,13 @@ fun ArohiMainApp(
             }
             composable(Screen.Calls.route) {
                 CallsScreen(
+                    viewModel = viewModel,
+                    onBack = { navController.popBackStack() },
+                    onNavigateToContacts = { navController.navigate(Screen.Contacts.route) }
+                )
+            }
+            composable(Screen.Contacts.route) {
+                ContactsScreen(
                     viewModel = viewModel,
                     onBack = { navController.popBackStack() }
                 )

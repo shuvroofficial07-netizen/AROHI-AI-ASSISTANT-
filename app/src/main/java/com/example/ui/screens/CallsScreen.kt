@@ -68,6 +68,7 @@ import com.example.ui.viewmodel.ArohiViewModel
 fun CallsScreen(
     viewModel: ArohiViewModel,
     onBack: () -> Unit = {},
+    onNavigateToContacts: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val callInfo by viewModel.callInfo.collectAsState()
@@ -241,7 +242,19 @@ fun CallsScreen(
                 Text(
                     text = "Type a name or number to find a real contact and call them. Multiple matches are shown — AROHI never guesses.",
                     fontSize = 11.sp,
-                    color = TextSecondary
+                    color = TextSecondary,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    text = "Browse all",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = CyanPrimary,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(CyanPrimary.copy(alpha = 0.12f))
+                        .clickable { onNavigateToContacts() }
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
                 )
             }
         } else if (contacts.isEmpty()) {
