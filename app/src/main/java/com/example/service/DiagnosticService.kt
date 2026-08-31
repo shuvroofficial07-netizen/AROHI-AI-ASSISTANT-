@@ -6,11 +6,16 @@ import android.content.pm.PackageManager
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.os.Build
+import android.os.Environment
 import android.os.PowerManager
+import android.os.StatFs
+import android.provider.Settings
 import androidx.core.content.ContextCompat
 import com.example.data.remote.GeminiClient
 import com.example.data.remote.GeminiConnectionState
 import com.example.data.repository.SettingsRepository
+import com.example.device.DeviceStateManager
+import com.example.voice.TextToSpeechManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -53,7 +58,8 @@ data class DiagnosticReport(
 
 class DiagnosticService(
     private val context: Context,
-    private val settingsRepository: SettingsRepository
+    private val settingsRepository: SettingsRepository,
+    private val deviceStateManager: DeviceStateManager
 ) {
     private val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager
 
@@ -380,6 +386,206 @@ class DiagnosticService(
         }
     }
 
+    // 9. Voice output engine (real TTS engine presence on this device)
+    fun checkVoiceOutput(): DiagnosticItem {
+        return if (TextToSpeechManager.isTtsEngineAvailable(context)) {
+            DiagnosticItem(
+                id = "voice_output",
+                name = "ভয়েস আউটপুট (TTS Engine)",
+                category = DiagnosticCategory.HARDWARE,
+                status = DiagnosticStatusLevel.READY,
+                summary = "Engine Present",
+                details = "A text-to-speech engine is installed and available for AROHI voice responses.",
+                actionText = "Settings"
+            )
+        } else {
+            DiagnosticItem(
+                id = "voice_output",
+                name = "ভয়েস আউটপুট (TTS Engine)",
+                category = DiagnosticCategory.HARDWARE,
+                status = DiagnosticStatusLevel.ERROR,
+                summary = "No TTS Engine",
+                details = "No text-to-speech engine found. Install Google TTS from Play Store to hear AROHI.",
+                actionText = "Settings"
+            )
+        }
+    }
+
+    // 10. Local database (Room)
+    fun checkDatabase(): DiagnosticItem {
+        val dbReady = try {
+            com.example.ArohiApplication.instance.database != null
+        } catch (e: Exception) {
+            false
+        }
+        return if (dbReady) {
+            DiagnosticItem(
+                id = "database",
+                name = "লোকাল ডেটাবেস (Room Memory)",
+                category = DiagnosticCategory.BACKGROUND_LAYER,
+                status = DiagnosticStatusLevel.READY,
+                summary = "Ready",
+                details = "Room database initialized — memories, messages, routines, tasks and notifications are persisted locally.",
+                actionText = null
+            )
+        } else {
+            DiagnosticItem(
+                id = "database",
+                name = "লোকাল ডেটাবেস (Room Memory)",
+                category = DiagnosticCategory.BACKGROUND_LAYER,
+                status = DiagnosticStatusLevel.ERROR,
+                summary = "Unavailable",
+                details = "Local database could not be verified.",
+                actionText = null
+            )
+        }
+    }
+
+    // 11. Network reachability (real ConnectivityManager state)
+    fun checkNetwork(): DiagnosticItem {
+        val (networkType, isConnected) = deviceStateManager.getNetworkInfo()
+        return if (isConnected) {
+            DiagnosticItem(
+                id = "network",
+                name = "নেটওয়ার্ক কানেকশন",
+                category = DiagnosticCategory.BACKGROUND_LAYER,
+                status = DiagnosticStatusLevel.READY,
+                summary = networkType,
+                details = "Active network connection available for Gemini cloud AI.",
+                actionText = null
+            )
+        } else {
+            DiagnosticItem(
+                id = "network",
+                name = "নেটওয়ার্ক কানেকশন",
+                category = DiagnosticCategory.BACKGROUND_LAYER,
+                status = DiagnosticStatusLevel.ERROR,
+                summary = "Offline",
+                details = "No active network. Cloud AI is unavailable; the local command engine still works.",
+                actionText = null
+            )
+        }
+    }
+
+    // 12. Storage (real filesystem stats)
+    fun checkStorage(): DiagnosticItem {
+        return try {
+            val stat = StatFs(Environment.getDataDirectory().path)
+            val freeGb = (stat.availableBlocksLong * stat.blockSizeLong).toDouble() / (1024.0 * 1024.0 * 1024.0)
+            if (freeGb < 0.2) {
+                DiagnosticItem(
+                    id = "storage",
+                    name = "স্টোরেজ স্পেস",
+                    category = DiagnosticCategory.HARDWARE,
+                    status = DiagnosticStatusLevel.LIMITED,
+                    summary = "Low (${"%.2f".format(freeGb)} GB free)",
+                    details = "Very little free storage remains — notifications and memory writes may be affected.",
+                    actionText = "Storage Settings"
+                )
+            } else {
+                DiagnosticItem(
+                    id = "storage",
+                    name = "স্টোরেজ স্পেস",
+                    category = DiagnosticCategory.HARDWARE,
+                    status = DiagnosticStatusLevel.READY,
+                    summary = "${"%.1f".format(freeGb)} GB free",
+                    details = "Sufficient storage for local memory and notification history.",
+                    actionText = null
+                )
+            }
+        } catch (e: Exception) {
+            DiagnosticItem(
+                id = "storage",
+                name = "স্টোরেজ স্পেস",
+                category = DiagnosticCategory.HARDWARE,
+                status = DiagnosticStatusLevel.ERROR,
+                summary = "Unavailable",
+                details = "Storage statistics could not be read.",
+                actionText = null
+            )
+        }
+    }
+
+    // 13. Overlay (floating indicator) permission
+    fun checkOverlay(): DiagnosticItem {
+        val granted = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)
+        return if (granted) {
+            DiagnosticItem(
+                id = "overlay",
+                name = "ফ্লোটিং ইন্ডিকেটর (Overlay)",
+                category = DiagnosticCategory.BACKGROUND_LAYER,
+                status = DiagnosticStatusLevel.READY,
+                summary = "Allowed",
+                details = "The floating AROHI indicator can appear while the background service runs.",
+                actionText = "Settings"
+            )
+        } else {
+            DiagnosticItem(
+                id = "overlay",
+                name = "ফ্লোটিং ইন্ডিকেটর (Overlay)",
+                category = DiagnosticCategory.BACKGROUND_LAYER,
+                status = DiagnosticStatusLevel.LIMITED,
+                summary = "Not Allowed",
+                details = "Overlay permission needed to show the small floating AROHI status pill.",
+                actionText = "Grant"
+            )
+        }
+    }
+
+    // 14. POST_NOTIFICATIONS (Android 13+) and phone state
+    fun checkNotificationPermission(): DiagnosticItem {
+        val granted = Build.VERSION.SDK_INT < 33 ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        return if (granted) {
+            DiagnosticItem(
+                id = "notification_permission",
+                name = "নোটিফিকেশন পারমিশন (POST)",
+                category = DiagnosticCategory.PERMISSIONS_ACCESS,
+                status = DiagnosticStatusLevel.READY,
+                summary = "Granted",
+                details = "AROHI can post its persistent background-service notification.",
+                actionText = "Settings"
+            )
+        } else {
+            DiagnosticItem(
+                id = "notification_permission",
+                name = "নোটিফিকেশন পারমিশন (POST)",
+                category = DiagnosticCategory.PERMISSIONS_ACCESS,
+                status = DiagnosticStatusLevel.LIMITED,
+                summary = "Not Granted",
+                details = "Android 13+ requires notification permission for the background service notice.",
+                actionText = "Grant"
+            )
+        }
+    }
+
+    fun checkPhoneState(): DiagnosticItem {
+        val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE) ==
+            PackageManager.PERMISSION_GRANTED
+        return if (granted) {
+            DiagnosticItem(
+                id = "phone_state",
+                name = "কল ইন্টেলিজেন্স (Phone State)",
+                category = DiagnosticCategory.PERMISSIONS_ACCESS,
+                status = DiagnosticStatusLevel.READY,
+                summary = "Granted",
+                details = "Incoming call detection and caller announcements are available.",
+                actionText = "Settings"
+            )
+        } else {
+            DiagnosticItem(
+                id = "phone_state",
+                name = "কল ইন্টেলিজেন্স (Phone State)",
+                category = DiagnosticCategory.PERMISSIONS_ACCESS,
+                status = DiagnosticStatusLevel.LIMITED,
+                summary = "Permission Required",
+                details = "READ_PHONE_STATE needed to detect incoming calls and announce callers.",
+                actionText = "Grant"
+            )
+        }
+    }
+
     // Full Diagnostic Runner
     suspend fun runFullDiagnostics(): DiagnosticReport = withContext(Dispatchers.Default) {
         _isChecking.value = true
@@ -388,20 +594,34 @@ class DiagnosticService(
             val bgItem = checkBackgroundService()
             val cameraItem = checkCameraAvailability()
             val micItem = checkMicrophone()
+            val voiceItem = checkVoiceOutput()
             val accessItem = checkAccessibility()
             val notifItem = checkNotificationListener()
             val contactsItem = checkContacts()
             val batteryItem = checkBatteryOptimization()
+            val dbItem = checkDatabase()
+            val networkItem = checkNetwork()
+            val storageItem = checkStorage()
+            val overlayItem = checkOverlay()
+            val notifPermItem = checkNotificationPermission()
+            val phoneItem = checkPhoneState()
 
             val allItems = listOf(
                 geminiItem,
                 bgItem,
                 cameraItem,
                 micItem,
+                voiceItem,
                 accessItem,
                 notifItem,
                 contactsItem,
-                batteryItem
+                batteryItem,
+                dbItem,
+                networkItem,
+                storageItem,
+                overlayItem,
+                notifPermItem,
+                phoneItem
             )
 
             val ready = allItems.count { it.status == DiagnosticStatusLevel.READY }

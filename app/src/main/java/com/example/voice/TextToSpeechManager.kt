@@ -1,6 +1,7 @@
 package com.example.voice
 
 import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
@@ -20,14 +21,19 @@ class TextToSpeechManager(
     private val _isSpeaking = MutableStateFlow(false)
     val isSpeaking: StateFlow<Boolean> = _isSpeaking.asStateFlow()
 
+    private val _availableVoices = MutableStateFlow<List<String>>(emptyList())
+    val availableVoices: StateFlow<List<String>> = _availableVoices.asStateFlow()
+
     private var currentPitch = 1.15f
     private var currentSpeed = 1.0f
+    private var selectedVoiceName: String = ""
 
     init {
         tts = TextToSpeech(context.applicationContext) { status ->
             if (status == TextToSpeech.SUCCESS) {
                 isInitialized = true
                 setupLanguageAndVoice()
+                refreshVoiceList()
             }
         }
     }
@@ -45,6 +51,7 @@ class TextToSpeechManager(
             }
         }
 
+        applySelectedVoice()
         ttsInstance.setPitch(currentPitch)
         ttsInstance.setSpeechRate(currentSpeed)
 
@@ -64,6 +71,52 @@ class TextToSpeechManager(
                 onSpeakingFinished()
             }
         })
+    }
+
+    /** Real list of voices installed on this device for the TTS engine. */
+    fun refreshVoiceList() {
+        val ttsInstance = tts ?: return
+        try {
+            val voices = ttsInstance.voices ?: emptySet()
+            _availableVoices.value = voices
+                .filter { !it.isNetworkConnectionRequired }
+                .map { voice -> voice.name }
+                .distinct()
+                .sorted()
+        } catch (e: Exception) {
+            _availableVoices.value = emptyList()
+        }
+    }
+
+    fun setVoiceByName(name: String) {
+        selectedVoiceName = name
+        applySelectedVoice()
+    }
+
+    private fun applySelectedVoice() {
+        val ttsInstance = tts ?: return
+        if (selectedVoiceName.isBlank()) return
+        try {
+            val voice = ttsInstance.voices?.firstOrNull { it.name == selectedVoiceName }
+            if (voice != null) {
+                ttsInstance.voice = voice
+            }
+        } catch (e: Exception) {
+            // Keep the engine default voice
+        }
+    }
+
+    companion object {
+        /** Real check: does this device have any TTS engine that can speak? */
+        fun isTtsEngineAvailable(context: Context): Boolean {
+            return try {
+                val intent = Intent(TextToSpeech.Engine.ACTION_CHECK_TTS_DATA)
+                val resolvers = context.packageManager.queryIntentActivities(intent, 0)
+                resolvers.isNotEmpty()
+            } catch (e: Exception) {
+                false
+            }
+        }
     }
 
     fun setVoicePitch(pitch: Float) {

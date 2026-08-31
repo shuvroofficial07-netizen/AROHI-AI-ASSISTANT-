@@ -284,6 +284,7 @@ fun AssistantChatScreen(
 
             if (isProcessing) {
                 item {
+                    val phase by viewModel.brainPhase.collectAsState()
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -296,12 +297,20 @@ fun AssistantChatScreen(
                             strokeWidth = 2.dp
                         )
                         Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = "আরোহী চিন্তা করছে...",
-                            fontSize = 12.sp,
-                            fontFamily = FontFamily.Monospace,
-                            color = CyanPrimary
-                        )
+                        Column {
+                            Text(
+                                text = "আরোহী কাজ করছে…",
+                                fontSize = 12.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = CyanPrimary
+                            )
+                            Text(
+                                text = phase.label,
+                                fontSize = 9.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = TextMuted
+                            )
+                        }
                     }
                 }
             }
@@ -454,13 +463,30 @@ fun MessageBubble(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = if (isUser) "YOU" else "AROHI",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.5.sp,
-                        color = if (isUser) CyanPrimary else VioletBright
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = if (isUser) "YOU" else "AROHI",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.5.sp,
+                            color = if (isUser) CyanPrimary else VioletBright
+                        )
+                        // Real assistant emotion recorded with the message
+                        if (!isUser && message.emotion.isNotBlank() && message.emotion != "IDLE") {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = message.emotion,
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                color = TextMuted,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color(0x14FFFFFF))
+                                    .padding(horizontal = 4.dp, vertical = 1.dp)
+                            )
+                        }
+                    }
 
                     if (!isUser) {
                         IconButton(

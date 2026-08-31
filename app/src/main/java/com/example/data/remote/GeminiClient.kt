@@ -51,10 +51,34 @@ object GeminiClient {
         retrofit.create(GeminiApiService::class.java)
     }
 
-    suspend fun testConnection(apiKey: String, model: String = "gemini-3.5-flash"): Pair<GeminiConnectionState, String> {
+    /**
+     * Real connectivity test. `retries` is the user-configurable retry count
+     * from the Gemini Control Center; each attempt is a genuine API ping.
+     */
+    suspend fun testConnection(
+        apiKey: String,
+        model: String = "gemini-3.5-flash",
+        retries: Int = 0
+    ): Pair<GeminiConnectionState, String> {
         if (apiKey.isBlank()) {
             return Pair(GeminiConnectionState.DISCONNECTED, "API Key is empty")
         }
+        var lastState = GeminiConnectionState.DISCONNECTED
+        var lastMessage = "API Key is empty"
+        var attempt = 0
+        do {
+            attempt++
+            val (state, message) = pingOnce(apiKey, model)
+            lastState = state
+            lastMessage = message
+        } while (state != GeminiConnectionState.CONNECTED &&
+            state != GeminiConnectionState.INVALID_KEY &&
+            state != GeminiConnectionState.MODEL_UNAVAILABLE &&
+            attempt <= retries)
+        return Pair(lastState, lastMessage)
+    }
+
+    private suspend fun pingOnce(apiKey: String, model: String): Pair<GeminiConnectionState, String> {
         return try {
             val request = GenerateContentRequest(
                 contents = listOf(
@@ -66,7 +90,7 @@ object GeminiClient {
             )
             val response = service.generateContent(model = model, apiKey = apiKey, request = request)
             if (response.isSuccessful) {
-                Pair(GeminiConnectionState.CONNECTED, "Gemini Connected (${model})")
+                Pair(GeminiConnectionState.CONNECTED, "Gemini Connected ($model)")
             } else {
                 val code = response.code()
                 val errorBody = response.errorBody()?.string() ?: ""
@@ -84,5 +108,16 @@ object GeminiClient {
         } catch (e: Exception) {
             Pair(GeminiConnectionState.NETWORK_ERROR, e.localizedMessage ?: "Network connection failure")
         }
+    }
+
+    companion object {
+        /** Models selectable in the Gemini Control Center. */
+        val SELECTABLE_MODELS = listOf(
+            "gemini-3.5-flash",
+            "gemini-2.5-flash",
+            "gemini-2.0-flash",
+            "gemini-1.5-flash",
+            "gemini-1.5-pro"
+        )
     }
 }

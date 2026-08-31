@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,6 +43,9 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import com.example.ui.theme.AmberWarning
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -75,6 +79,12 @@ import com.example.ui.viewmodel.ArohiViewModel
 @Composable
 fun SettingsScreen(
     viewModel: ArohiViewModel,
+    onNavigateToPermissions: () -> Unit = {},
+    onNavigateToGemini: () -> Unit = {},
+    onNavigateToAbout: () -> Unit = {},
+    onNavigateToBrain: () -> Unit = {},
+    onNavigateToApps: () -> Unit = {},
+    onNavigateToCalls: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -108,6 +118,155 @@ fun SettingsScreen(
                 fontWeight = FontWeight.SemiBold,
                 color = Color.White
             )
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // Quick access to full control centers
+        GlassCard(modifier = Modifier.fillMaxWidth()) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                SettingsLinkRow("Permission Center", "সব পারমিশনের লাইভ স্ট্যাটাস", onClick = onNavigateToPermissions)
+                SettingsLinkRow("Gemini AI Control Center", "API key, model, connection test", onClick = onNavigateToGemini)
+                SettingsLinkRow("Arohi Brain", "প্রসেসিং পাইপলাইন ও টাস্ক স্ট্যাটাস", onClick = onNavigateToBrain)
+                SettingsLinkRow("Apps", "ইনস্টল করা অ্যাপ ও ভয়েস কমান্ড", onClick = onNavigateToApps)
+                SettingsLinkRow("Calls", "কল স্ট্যাটাস ও কন্টাক্ট", onClick = onNavigateToCalls)
+                SettingsLinkRow("About & Support", "Arohi AI Assistant by Shù Vrô", onClick = onNavigateToAbout)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // Personality & Assistant Behavior (real persisted preferences)
+        val personalityStyle by viewModel.personalityStyleFlow.collectAsState()
+        val languageCode by viewModel.languageCodeFlow.collectAsState()
+        val privateMode by viewModel.privateModeFlow.collectAsState()
+
+        GlassCard(modifier = Modifier.fillMaxWidth()) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Person,
+                        contentDescription = null,
+                        tint = MagentaAccent,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "পার্সোনালিটি ও ভাষা",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+
+                // Personality style chips — default: Warm Bengali Companion (বস)
+                Text(
+                    text = "Personality",
+                    fontSize = 11.sp,
+                    color = TextMuted
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    com.example.data.repository.SettingsRepository.PERSONALITY_STYLES.take(3).forEach { style ->
+                        val selected = style == personalityStyle
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(if (selected) MagentaAccent.copy(alpha = 0.2f) else Color(0x0DFFFFFF))
+                                .border(
+                                    1.dp,
+                                    if (selected) MagentaAccent.copy(alpha = 0.6f) else Color(0x1AFFFFFF),
+                                    RoundedCornerShape(999.dp)
+                                )
+                                .clickable { viewModel.setPersonalityStyle(style) }
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = style,
+                                fontSize = 10.sp,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (selected) MagentaAccent else TextSecondary
+                            )
+                        }
+                    }
+                }
+
+                // Language selector — real SpeechRecognizer locales
+                Text(
+                    text = "Language (ভয়েস কমান্ড)",
+                    fontSize = 11.sp,
+                    color = TextMuted
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    com.example.data.repository.SettingsRepository.LANGUAGE_OPTIONS.take(5).forEach { (code, label) ->
+                        val selected = code == languageCode
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(if (selected) CyanPrimary.copy(alpha = 0.18f) else Color(0x0DFFFFFF))
+                                .border(
+                                    1.dp,
+                                    if (selected) CyanPrimary.copy(alpha = 0.6f) else Color(0x1AFFFFFF),
+                                    RoundedCornerShape(999.dp)
+                                )
+                                .clickable { viewModel.setLanguageCode(code) }
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = label.substringBefore(" (").substringBefore(" "),
+                                fontSize = 10.sp,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (selected) CyanPrimary else TextSecondary
+                            )
+                        }
+                    }
+                }
+
+                // Privacy: Private Mode toggle
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0x0DFFFFFF))
+                        .border(1.dp, Color(0x1AFFFFFF), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Security,
+                        contentDescription = null,
+                        tint = AmberWarning,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Private Mode",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "নোটিফিকেশন প্রিভিউ লুকানো থাকবে",
+                            fontSize = 10.sp,
+                            color = TextMuted
+                        )
+                    }
+                    Switch(
+                        checked = privateMode,
+                        onCheckedChange = { viewModel.setPrivateMode(it) },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = AmberWarning,
+                            checkedTrackColor = AmberWarning.copy(alpha = 0.3f)
+                        )
+                    )
+                }
+            }
         }
 
         Spacer(modifier = Modifier.height(14.dp))
@@ -414,7 +573,7 @@ fun SettingsScreen(
                     color = CyanPrimary
                 )
                 Text(
-                    text = "Version 13.99.0 (Final Production Release)",
+                    text = "AROHI AI ASSISTANT — NEXT GENERATION (v14.0.0)",
                     fontSize = 12.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.SemiBold,
@@ -480,6 +639,44 @@ private fun openUrl(context: Context, url: String) {
         context.startActivity(intent)
     } catch (e: Exception) {
         // Ignored
+    }
+}
+
+@Composable
+private fun SettingsLinkRow(
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color(0x0DFFFFFF))
+            .border(1.dp, Color(0x1AFFFFFF), RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Color.White
+            )
+            Text(
+                text = subtitle,
+                fontSize = 10.sp,
+                color = TextMuted
+            )
+        }
+        Text(
+            text = "›",
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold,
+            color = CyanPrimary
+        )
     }
 }
 

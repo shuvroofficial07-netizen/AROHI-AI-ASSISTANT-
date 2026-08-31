@@ -1,6 +1,6 @@
 # AROHI AI Assistant by Shù Vrô
 
-**Version 13.97.7 — Autonomous Android AI Operating Layer**
+**AROHI AI ASSISTANT — NEXT GENERATION (v14.0.0) — Autonomous Android AI Operating Layer**
 
 AROHI is a real, working Android AI assistant built with Kotlin + Jetpack Compose. No fake data, no simulated actions — every reading and every action comes from real device APIs.
 
