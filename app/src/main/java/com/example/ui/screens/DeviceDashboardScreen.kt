@@ -53,6 +53,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.service.DiagnosticStatusLevel
 import com.example.ui.components.GlassCard
 import com.example.ui.theme.AmberWarning
 import com.example.ui.theme.CyanPrimary

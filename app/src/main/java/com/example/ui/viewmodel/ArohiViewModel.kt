@@ -44,6 +44,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 
 data class DiagnosticsStatus(
     val hasMicPermission: Boolean,
@@ -421,7 +422,7 @@ class ArohiViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Real JSON export of saved memories through the Android share sheet. */
     fun exportMemories(): String? {
-        val list = app.memoryRepository.allMemories.first()
+        val list = runBlocking { app.memoryRepository.allMemories.first() }
         if (list.isEmpty()) return null
         return buildString {
             append("{\n  \"arohi_memories\": [\n")
@@ -444,7 +445,7 @@ class ArohiViewModel(application: Application) : AndroidViewModel(application) {
                 val key = match.groupValues[2]
                 val value = match.groupValues[3]
                 if (key.isNotBlank() && value.isNotBlank()) {
-                    app.memoryRepository.saveMemory(category.ifBlank { "IMPORTED" }, key, value)
+                    runBlocking { app.memoryRepository.saveMemory(category.ifBlank { "IMPORTED" }, key, value) }
                     count++
                 }
             }
@@ -542,7 +543,7 @@ class ArohiViewModel(application: Application) : AndroidViewModel(application) {
     /** Real dismiss — cancels the live system notification by its captured key. */
     fun dismissNotification(notification: NotificationEntity) {
         val dismissed = if (notification.notificationKey.isNotBlank()) {
-            ArohiNotificationListenerService.instance()?.dismissNotificationByKey(notification.notificationKey) ?: false
+            ArohiNotificationListenerService.instance?.dismissNotificationByKey(notification.notificationKey) ?: false
         } else {
             false
         }

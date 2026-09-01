@@ -33,6 +33,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -69,7 +71,7 @@ fun AboutSupportScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val report by androidx.compose.runtime.collectAsState(viewModel.diagnosticReport)
+    val report by viewModel.diagnosticReport.collectAsState()
 
     Column(
         modifier = modifier

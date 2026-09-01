@@ -83,16 +83,6 @@ jobs:
           grep -E "^(e: |error:|FAILURE:|What went wrong:|Caused by:|> Task .*FAILED)" build.log | tail -n 30 | while IFS= read -r line; do
             printf '::error::%s\n' "$line"
           done
-          # Upload full log to the ci-logs branch so it can be inspected
-          LOG_FILE="build.log"
-          if [ "$(wc -c < build.log)" -gt 2000000 ]; then
-            tail -c 2000000 build.log > build-log-upload.txt
-            LOG_FILE="build-log-upload.txt"
-          fi
-          gh api -X PUT "repos/$GITHUB_REPOSITORY/contents/build.log" \
-            -f message="CI build log (run $GITHUB_RUN_ID, attempt $GITHUB_RUN_ATTEMPT)" \
-            -f branch="ci-logs" \
-            -f content="$(base64 -w0 "$LOG_FILE")" || echo "log upload failed"
 
       - name: Verify APK exists
         run: |

@@ -111,7 +111,7 @@ fun PermissionsScreen(
         PackageManager.PERMISSION_GRANTED
 
     // refreshTick read to re-evaluate on returning from system screens
-    val _ = refreshTick
+    @Suppress("UNUSED_VARIABLE") val refreshTickValue = refreshTick
 
     Column(
         modifier = modifier
