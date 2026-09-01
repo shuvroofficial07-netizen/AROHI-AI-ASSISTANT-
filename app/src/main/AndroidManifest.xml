@@ -57,6 +57,14 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.MyApplication">
+
+        <!-- No google-services.json / Firebase project is configured for this app
+             (the cloud AI uses the Gemini REST API directly). Prevent the Firebase
+             auto-init provider from being merged in and crashing the app at startup. -->
+        <provider
+            android:name="com.google.firebase.provider.FirebaseInitProvider"
+            tools:node="remove" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
