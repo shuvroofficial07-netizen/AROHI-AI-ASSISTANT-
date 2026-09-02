@@ -72,3 +72,13 @@ app/src/main/java/com/example/
 ---
 
 **AROHI AI Assistant** — by **Shù Vrô (Shuvro)**
+
+## Version 13.97.7 — stabilization notes
+
+The launch crash was caused by unused Firebase SDKs initializing without a `google-services.json`;
+they have been removed. Full audit, fake-data removal list, Gemini/security changes and the
+explicitly *unimplemented* items are documented in [`docs/AUDIT_13.97.7.md`](docs/AUDIT_13.97.7.md).
+
+Builds run in GitHub Actions (`.github/workflows/build-apk.yml`) and publish an installable debug APK.
+Add your own Gemini API key in **Settings → Gemini API কনফিগারেশন** (stored encrypted with the
+Android Keystore); no key is bundled with the app.
