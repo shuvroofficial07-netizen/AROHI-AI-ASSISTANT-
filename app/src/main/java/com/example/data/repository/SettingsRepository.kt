@@ -9,6 +9,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+/** Notification voice-announcement policy (requirement: configurable, privacy aware). */
+enum class NotificationAnnouncePolicy {
+    OFF,
+    IMPORTANT_ONLY,
+    SELECTED_APPS,
+    ALL
+}
+
 class SettingsRepository(context: Context) {
     private val prefs: SharedPreferences =
         context.getSharedPreferences("arohi_settings_prefs", Context.MODE_PRIVATE)
@@ -48,8 +56,30 @@ class SettingsRepository(context: Context) {
     private val _maxRetriesFlow = MutableStateFlow(getMaxRetries())
     val maxRetriesFlow: StateFlow<Int> = _maxRetriesFlow.asStateFlow()
 
+    private val _announcePolicyFlow = MutableStateFlow(getNotificationAnnouncePolicy())
+    val announcePolicyFlow: StateFlow<NotificationAnnouncePolicy> = _announcePolicyFlow.asStateFlow()
+
     init {
         applyNetworkConfig()
+    }
+
+    fun getNotificationAnnouncePolicy(): NotificationAnnouncePolicy {
+        val stored = prefs.getString(KEY_ANNOUNCE_POLICY, NotificationAnnouncePolicy.IMPORTANT_ONLY.name)
+        return runCatching { NotificationAnnouncePolicy.valueOf(stored!!) }
+            .getOrDefault(NotificationAnnouncePolicy.IMPORTANT_ONLY)
+    }
+
+    fun setNotificationAnnouncePolicy(policy: NotificationAnnouncePolicy) {
+        prefs.edit().putString(KEY_ANNOUNCE_POLICY, policy.name).apply()
+        _announcePolicyFlow.value = policy
+    }
+
+    /** App labels the user explicitly allowed for SELECTED_APPS mode. */
+    fun getAnnouncedPackages(): Set<String> =
+        prefs.getStringSet(KEY_ANNOUNCED_APPS, emptySet()) ?: emptySet()
+
+    fun setAnnouncedPackages(apps: Set<String>) {
+        prefs.edit().putStringSet(KEY_ANNOUNCED_APPS, apps).apply()
     }
 
     fun getApiKey(): String {
@@ -195,5 +225,7 @@ class SettingsRepository(context: Context) {
         private const val KEY_NOTIFICATION_AI_ENABLED = "key_notification_ai_enabled"
         private const val KEY_TIMEOUT_SECONDS = "key_gemini_timeout_seconds"
         private const val KEY_MAX_RETRIES = "key_gemini_max_retries"
+        private const val KEY_ANNOUNCE_POLICY = "key_notification_announce_policy"
+        private const val KEY_ANNOUNCED_APPS = "key_notification_announced_apps"
     }
 }

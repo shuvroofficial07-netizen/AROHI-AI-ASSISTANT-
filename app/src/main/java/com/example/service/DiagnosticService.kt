@@ -153,7 +153,7 @@ class DiagnosticService(
                 category = DiagnosticCategory.BACKGROUND_LAYER,
                 status = DiagnosticStatusLevel.READY,
                 summary = "Foreground Active",
-                details = "Foreground service is running with persistent notification. 24/7 assistant capabilities enabled.",
+                details = "Foreground service is running with a persistent notification. Android or the OEM battery manager can still stop it; this card always shows the real state.",
                 actionText = "Stop"
             )
         } else {
@@ -364,7 +364,7 @@ class DiagnosticService(
                 category = DiagnosticCategory.BACKGROUND_LAYER,
                 status = DiagnosticStatusLevel.READY,
                 summary = "Unrestricted",
-                details = "App is exempted from Android power saving limits for uninterrupted background execution.",
+                details = "App is exempted from Android battery optimisation. This reduces, but does not eliminate, OEM background restrictions.",
                 actionText = "Settings"
             )
         } else {
@@ -376,6 +376,139 @@ class DiagnosticService(
                 summary = "Optimized (Restricted)",
                 details = "Android may kill background processes under memory/battery pressure. Tap to exempt.",
                 actionText = "Optimize"
+            )
+        }
+    }
+
+    // 9. Speech recognition engine really present on this device?
+    fun checkSpeechRecognizer(): DiagnosticItem {
+        val available = try {
+            android.speech.SpeechRecognizer.isRecognitionAvailable(context)
+        } catch (e: Exception) {
+            false
+        }
+        return DiagnosticItem(
+            id = "speech_recognizer",
+            name = "Speech Recognition (STT) ইঞ্জিন",
+            category = DiagnosticCategory.HARDWARE,
+            status = if (available) DiagnosticStatusLevel.READY else DiagnosticStatusLevel.ERROR,
+            summary = if (available) "Recognizer Available" else "No Recognizer",
+            details = if (available) {
+                "An on-device/Google speech recognition service is installed and can be started."
+            } else {
+                "No speech recognition service is installed on this device, so voice input cannot work."
+            },
+            actionText = if (available) null else "Install Google app"
+        )
+    }
+
+    // 10. Text-to-speech engine really installed?
+    suspend fun checkTextToSpeech(): DiagnosticItem = withContext(Dispatchers.Main) {
+        val engines = try {
+            context.packageManager.queryIntentServices(
+                android.content.Intent(android.speech.tts.TextToSpeech.Engine.INTENT_ACTION_TTS_SERVICE),
+                0
+            )
+        } catch (e: Exception) {
+            emptyList()
+        }
+        val hasEngine = engines.isNotEmpty()
+        DiagnosticItem(
+            id = "tts",
+            name = "Text-to-Speech ভয়েস আউটপুট",
+            category = DiagnosticCategory.HARDWARE,
+            status = if (hasEngine) DiagnosticStatusLevel.READY else DiagnosticStatusLevel.ERROR,
+            summary = if (hasEngine) "${engines.size} engine(s)" else "No TTS engine",
+            details = if (hasEngine) {
+                "A text-to-speech engine is installed. Bengali playback also needs the Bengali voice data pack."
+            } else {
+                "No text-to-speech engine is installed, so Arohi cannot speak on this device."
+            },
+            actionText = if (hasEngine) "TTS Settings" else "Install TTS"
+        )
+    }
+
+    // 11. Local Room database really readable/writable?
+    suspend fun checkDatabase(): DiagnosticItem = withContext(Dispatchers.IO) {
+        try {
+            val app = context.applicationContext as? com.example.ArohiApplication
+            val count = app?.memoryRepository?.count() ?: -1
+            if (count < 0) {
+                DiagnosticItem(
+                    id = "database",
+                    name = "লোকাল মেমোরি ডেটাবেস (Room)",
+                    category = DiagnosticCategory.AI_CORE,
+                    status = DiagnosticStatusLevel.LIMITED,
+                    summary = "Not initialised",
+                    details = "The Room database has not been opened yet in this process."
+                )
+            } else {
+                DiagnosticItem(
+                    id = "database",
+                    name = "লোকাল মেমোরি ডেটাবেস (Room)",
+                    category = DiagnosticCategory.AI_CORE,
+                    status = DiagnosticStatusLevel.READY,
+                    summary = "Readable ($count memories)",
+                    details = "Room database opened and queried successfully."
+                )
+            }
+        } catch (t: Throwable) {
+            DiagnosticItem(
+                id = "database",
+                name = "লোকাল মেমোরি ডেটাবেস (Room)",
+                category = DiagnosticCategory.AI_CORE,
+                status = DiagnosticStatusLevel.ERROR,
+                summary = "Database error",
+                details = "The local database could not be read: ${t.message ?: t.javaClass.simpleName}",
+                actionText = "Retry"
+            )
+        }
+    }
+
+    // 12. Overlay (floating assistant) permission — real Settings.canDrawOverlays state
+    fun checkOverlayPermission(): DiagnosticItem {
+        val granted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            android.provider.Settings.canDrawOverlays(context)
+        } else {
+            true
+        }
+        return DiagnosticItem(
+            id = "overlay",
+            name = "Floating Assistant ওভারলে পারমিশন",
+            category = DiagnosticCategory.PERMISSIONS_ACCESS,
+            status = if (granted) DiagnosticStatusLevel.READY else DiagnosticStatusLevel.LIMITED,
+            summary = if (granted) "Allowed" else "Not Allowed",
+            details = if (granted) {
+                "Arohi may draw the floating assistant indicator over other apps."
+            } else {
+                "Draw-over-other-apps permission is off, so the floating indicator cannot be shown."
+            },
+            actionText = if (granted) null else "Grant"
+        )
+    }
+
+    // 13. Previous run crash (real recorded stack trace, if any)
+    fun checkLastCrash(): DiagnosticItem {
+        val crash = com.example.core.CrashReporter.lastCrash(context)
+        return if (crash == null) {
+            DiagnosticItem(
+                id = "last_crash",
+                name = "শেষ ক্র্যাশ রিপোর্ট",
+                category = DiagnosticCategory.AI_CORE,
+                status = DiagnosticStatusLevel.READY,
+                summary = "No crash recorded",
+                details = "The previous session ended without an uncaught exception."
+            )
+        } else {
+            val firstLines = crash.lineSequence().take(6).joinToString("\n")
+            DiagnosticItem(
+                id = "last_crash",
+                name = "শেষ ক্র্যাশ রিপোর্ট",
+                category = DiagnosticCategory.AI_CORE,
+                status = DiagnosticStatusLevel.ERROR,
+                summary = "Crash recorded",
+                details = firstLines,
+                actionText = "Clear"
             )
         }
     }
@@ -392,6 +525,11 @@ class DiagnosticService(
             val notifItem = checkNotificationListener()
             val contactsItem = checkContacts()
             val batteryItem = checkBatteryOptimization()
+            val sttItem = checkSpeechRecognizer()
+            val ttsItem = checkTextToSpeech()
+            val dbItem = checkDatabase()
+            val overlayItem = checkOverlayPermission()
+            val crashItem = checkLastCrash()
 
             val allItems = listOf(
                 geminiItem,
@@ -401,7 +539,12 @@ class DiagnosticService(
                 accessItem,
                 notifItem,
                 contactsItem,
-                batteryItem
+                batteryItem,
+                sttItem,
+                ttsItem,
+                dbItem,
+                overlayItem,
+                crashItem
             )
 
             val ready = allItems.count { it.status == DiagnosticStatusLevel.READY }

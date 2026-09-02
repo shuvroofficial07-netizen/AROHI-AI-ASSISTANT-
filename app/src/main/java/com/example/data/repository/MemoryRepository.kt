@@ -37,6 +37,9 @@ class MemoryRepository(private val memoryDao: MemoryDao) {
         return memoryDao.deleteMemoryByKey(key.trim())
     }
 
+    /** Real row count — also used by diagnostics to prove the database is readable. */
+    suspend fun count(): Int = memoryDao.countMemories()
+
     suspend fun clearAll() {
         memoryDao.clearAll()
     }

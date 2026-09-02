@@ -23,6 +23,7 @@ import com.example.service.ArohiNotificationListenerService
 import com.example.service.DiagnosticCategory
 import com.example.service.DiagnosticItem
 import com.example.service.DiagnosticReport
+import com.example.data.repository.NotificationAnnouncePolicy
 import com.example.data.repository.TaskLogRepository
 import com.example.service.DiagnosticService
 import com.example.service.DiagnosticStatusLevel
@@ -261,6 +262,12 @@ class ArohiViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setRequestTimeoutSeconds(seconds: Int) {
         app.settingsRepository.setRequestTimeoutSeconds(seconds)
+    }
+
+    val announcePolicyFlow = app.settingsRepository.announcePolicyFlow
+
+    fun setNotificationAnnouncePolicy(policy: NotificationAnnouncePolicy) {
+        app.settingsRepository.setNotificationAnnouncePolicy(policy)
     }
 
     fun setMaxRetries(retries: Int) {
