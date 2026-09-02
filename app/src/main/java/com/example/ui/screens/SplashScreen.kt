@@ -61,26 +61,17 @@ fun SplashScreen(
     modifier: Modifier = Modifier
 ) {
     var progress by remember { mutableFloatStateOf(0f) }
-    var currentPhaseText by remember { mutableStateOf("Initializing Arohi v13.97.7...") }
+    var currentPhaseText by remember { mutableStateOf("Starting Arohi…") }
 
     LaunchedEffect(Unit) {
-        val phases = listOf(
-            "Initializing Arohi v13.97.7...",
-            "Checking voice engine...",
-            "Checking Gemini connection...",
-            "Checking system permissions...",
-            "Starting background operating layer...",
-            "Loading local memory & routines...",
-            "Checking notification intelligence...",
-            "Arohi AI Assistant Ready"
-        )
-        val steps = 50
+        // Branding animation only — this bar does NOT claim to verify subsystems.
+        // Real subsystem checks live in Diagnostics ("RUN FULL DIAGNOSTICS").
+        val steps = 30
         for (i in 1..steps) {
-            delay(35)
+            delay(30)
             progress = i / steps.toFloat()
-            val phaseIdx = ((progress * (phases.size - 1)).toInt()).coerceIn(0, phases.size - 1)
-            currentPhaseText = phases[phaseIdx]
         }
+        currentPhaseText = "Arohi AI Assistant by Shù Vrô"
         delay(300)
         onFinish()
     }
@@ -319,7 +310,7 @@ fun SplashScreen(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Centered -- 100% -- indicator
+                // Centered progress indicator
                 Text(
                     text = "-- ${(animatedProgress * 100).toInt()}% --",
                     fontSize = 11.sp,

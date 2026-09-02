@@ -24,6 +24,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.RecordVoiceOver
@@ -63,6 +64,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.remote.GeminiClient
+import com.example.data.remote.GeminiConnectionState
 import com.example.ui.components.GlassCard
 import com.example.ui.theme.CyanPrimary
 import com.example.ui.theme.EmeraldSuccess
@@ -82,6 +85,12 @@ fun SettingsScreen(
 
     var apiKeyInput by remember(currentApiKey) { mutableStateOf(currentApiKey) }
     var isApiKeyVisible by remember { mutableStateOf(false) }
+
+    val currentModel by viewModel.modelNameFlow.collectAsState()
+    val geminiState by viewModel.geminiState.collectAsState()
+    val geminiStatusMessage by viewModel.geminiStatusMessage.collectAsState()
+    val timeoutSeconds by viewModel.timeoutSecondsFlow.collectAsState()
+    val maxRetries by viewModel.maxRetriesFlow.collectAsState()
 
     var pitchSlider by remember { mutableFloatStateOf(1.15f) }
     var speedSlider by remember { mutableFloatStateOf(1.0f) }
@@ -186,6 +195,130 @@ fun SettingsScreen(
                     ) {
                         Text("সেভ করুন", color = Color(0xFF020205), fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Real connection state — never shows "connected" without a verified response.
+                val (stateColor, stateLabel) = when (geminiState) {
+                    GeminiConnectionState.CONNECTED -> Pair(EmeraldSuccess, "● CONNECTED")
+                    GeminiConnectionState.CHECKING -> Pair(CyanPrimary, "● TESTING…")
+                    GeminiConnectionState.INVALID_KEY -> Pair(MagentaAccent, "● INVALID KEY")
+                    GeminiConnectionState.RATE_LIMITED -> Pair(Color(0xFFF59E0B), "● RATE LIMITED")
+                    GeminiConnectionState.MODEL_UNAVAILABLE -> Pair(Color(0xFFF59E0B), "● MODEL UNAVAILABLE")
+                    GeminiConnectionState.NETWORK_ERROR -> Pair(MagentaAccent, "● NETWORK ERROR")
+                    GeminiConnectionState.DISCONNECTED -> Pair(TextMuted, "● NOT CONFIGURED")
+                }
+                Text(
+                    text = stateLabel,
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    color = stateColor
+                )
+                Text(
+                    text = if (currentApiKey.isBlank()) "Gemini API is not configured." else geminiStatusMessage,
+                    fontSize = 11.sp,
+                    color = TextSecondary
+                )
+                Text(
+                    text = if (viewModel.isApiKeyEncrypted) {
+                        "Key storage: encrypted with the Android Keystore (AES/GCM)."
+                    } else {
+                        "Key storage: app-private storage (this Android version has no Keystore AES support)."
+                    },
+                    fontSize = 10.sp,
+                    color = TextMuted
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Text(
+                    text = "MODEL",
+                    fontSize = 10.sp,
+                    letterSpacing = 1.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = CyanPrimary
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    GeminiClient.SELECTABLE_MODELS.chunked(2).forEach { rowModels ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            rowModels.forEach { model ->
+                                val selected = model == currentModel
+                                OutlinedButton(
+                                    onClick = { viewModel.setModelName(model) },
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        1.dp,
+                                        if (selected) CyanPrimary else Color(0x22FFFFFF)
+                                    ),
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        contentColor = if (selected) CyanPrimary else TextSecondary
+                                    ),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(model, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                                }
+                            }
+                            if (rowModels.size == 1) Spacer(modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Text(
+                    text = "Request timeout: $timeoutSeconds s",
+                    fontSize = 11.sp,
+                    color = TextSecondary
+                )
+                Slider(
+                    value = timeoutSeconds.toFloat(),
+                    onValueChange = { viewModel.setRequestTimeoutSeconds(it.toInt()) },
+                    valueRange = 10f..120f,
+                    colors = SliderDefaults.colors(
+                        thumbColor = CyanPrimary,
+                        activeTrackColor = CyanPrimary,
+                        inactiveTrackColor = Color(0x1AFFFFFF)
+                    )
+                )
+                Text(
+                    text = "Automatic retries on transient failures: $maxRetries",
+                    fontSize = 11.sp,
+                    color = TextSecondary
+                )
+                Slider(
+                    value = maxRetries.toFloat(),
+                    onValueChange = { viewModel.setMaxRetries(it.toInt()) },
+                    valueRange = 0f..3f,
+                    steps = 2,
+                    colors = SliderDefaults.colors(
+                        thumbColor = VioletBright,
+                        activeTrackColor = VioletBright,
+                        inactiveTrackColor = Color(0x1AFFFFFF)
+                    )
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                OutlinedButton(
+                    onClick = {
+                        viewModel.clearApiKey()
+                        apiKeyInput = ""
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MagentaAccent.copy(alpha = 0.5f)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MagentaAccent),
+                    modifier = Modifier.testTag("clear_api_key_btn")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.DeleteOutline,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("API Key মুছে ফেলুন", fontSize = 11.sp, fontFamily = FontFamily.Monospace)
                 }
             }
         }
@@ -414,7 +547,7 @@ fun SettingsScreen(
                     color = CyanPrimary
                 )
                 Text(
-                    text = "Version 13.99.0 (Final Production Release)",
+                    text = "Version 13.97.7",
                     fontSize = 12.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.SemiBold,

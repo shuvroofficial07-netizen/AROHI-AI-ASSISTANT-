@@ -18,6 +18,14 @@ import com.example.data.repository.SettingsRepository
 import com.example.device.AppDiscoveryManager
 import com.example.device.ContactsManager
 import com.example.device.DeviceStateManager
+import com.example.device.batteryText
+import com.example.device.mediaVolumeText
+import com.example.device.networkText
+import com.example.device.orUnavailable
+import com.example.device.ramDetailText
+import com.example.device.ramUsedPercent
+import com.example.device.storageDetailText
+import com.example.device.storageUsedPercent
 import com.example.device.TelephonyHelper
 import com.example.service.ArohiAccessibilityService
 import com.example.service.ArohiNotificationListenerService
@@ -246,7 +254,16 @@ class ArohiBrain(
             }
             "read_device_telemetry" -> {
                 val telemetry = deviceStateManager.getTelemetry()
-                "ডিভাইস স্ট্যাটাস: ব্যাটারি ${telemetry.batteryPercent}% (${if (telemetry.isCharging) "চার্জিং" else "ব্যাটারিতে"}), ফ্রি র‍্যাম ${telemetry.freeRamMb}MB/${telemetry.totalRamMb}MB, ফ্রি স্টোরেজ ${telemetry.freeStorageGb}GB, নেটওয়ার্ক: ${telemetry.networkType}, ভলিউম: ${telemetry.mediaVolumePercent}%।"
+                buildString {
+                    append("ডিভাইস স্ট্যাটাস: ব্যাটারি ${telemetry.batteryText()}")
+                    if (telemetry.batteryPercent >= 0) {
+                        append(" (${if (telemetry.isCharging) "চার্জিং" else "ব্যাটারিতে"})")
+                    }
+                    append(", RAM ব্যবহার ${telemetry.ramUsedPercent().orUnavailable()} (${telemetry.ramDetailText()})")
+                    append(", স্টোরেজ ব্যবহার ${telemetry.storageUsedPercent().orUnavailable()} (${telemetry.storageDetailText()})")
+                    append(", নেটওয়ার্ক: ${telemetry.networkText()}")
+                    append(", মিডিয়া ভলিউম: ${telemetry.mediaVolumeText()}।")
+                }
             }
             "toggle_flashlight" -> {
                 val enabled = args["enabled"]?.toString()?.toBooleanStrictOrNull() ?: true
@@ -301,12 +318,17 @@ class ArohiBrain(
             }
             "diagnostics_check" -> {
                 val telemetry = deviceStateManager.getTelemetry()
-                val hasMic = contactsManager.hasContactsPermission()
+                val hasContactsPermission = contactsManager.hasContactsPermission()
                 val isAccess = ArohiAccessibilityService.isServiceRunning()
                 val isNotif = ArohiNotificationListenerService.isConnected
-                "সিস্টেম ডায়াগনস্টিকস:\n• ব্যাটারি ও সেন্সর: সচল\n• কন্ট্রোল সার্ভিস: ${if (isAccess) "সক্রিয়" else "নিষ্ক্রিয়"}\n• নোটিফিকেশন লিসেনার: ${if (isNotif) "সংযুক্ত" else "অপেক্ষারত"}\n• ওএস: ${telemetry.androidVersion}"
+                "সিস্টেম ডায়াগনস্টিকস:\n" +
+                    "• ব্যাটারি: ${telemetry.batteryText()}\n" +
+                    "• Accessibility কন্ট্রোল সার্ভিস: ${if (isAccess) "সংযুক্ত" else "নিষ্ক্রিয়"}\n" +
+                    "• নোটিফিকেশন লিসেনার: ${if (isNotif) "সংযুক্ত" else "সংযুক্ত নয়"}\n" +
+                    "• কন্টাক্টস পারমিশন: ${if (hasContactsPermission) "দেওয়া আছে" else "দেওয়া নেই"}\n" +
+                    "• ওএস: ${telemetry.androidVersion} (API ${telemetry.apiLevel})"
             }
-            else -> "কমান্ড '$name' সম্পন্ন করা হয়েছে।"
+            else -> "'$name' নামের কোনো সমর্থিত টুল Arohi-তে নেই, তাই এই কাজটি করা হয়নি।"
         }
     }
 
@@ -345,9 +367,9 @@ class ArohiBrain(
             - Creator: Shù Vrô
             - Target Device Spec: Samsung Galaxy S8+ / Android 9
             - Device: ${telemetry.deviceName} (${telemetry.androidVersion}, API ${telemetry.apiLevel})
-            - Battery: ${telemetry.batteryPercent}% (${if (telemetry.isCharging) "Charging" else "On Battery"})
-            - Free Storage: ${telemetry.freeStorageGb} GB
-            - Network: ${telemetry.networkType}
+            - Battery: ${telemetry.batteryText()} (${if (telemetry.isCharging) "Charging" else "On Battery / Unknown"})
+            - Storage: ${telemetry.storageDetailText()}
+            - Network: ${telemetry.networkText()}
             - Memory Notes: $memoryContext
         """.trimIndent()
 

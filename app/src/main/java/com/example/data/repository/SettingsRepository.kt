@@ -3,6 +3,8 @@ package com.example.data.repository
 import android.content.Context
 import android.content.SharedPreferences
 import com.example.BuildConfig
+import com.example.core.SecureKeyStore
+import com.example.data.remote.GeminiClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -10,6 +12,11 @@ import kotlinx.coroutines.flow.asStateFlow
 class SettingsRepository(context: Context) {
     private val prefs: SharedPreferences =
         context.getSharedPreferences("arohi_settings_prefs", Context.MODE_PRIVATE)
+
+    private val secureStore = SecureKeyStore(prefs)
+
+    /** True when the API key is protected by an Android Keystore AES key on this device. */
+    val isApiKeyEncrypted: Boolean = secureStore.isEncrypted
 
     private val _apiKeyFlow = MutableStateFlow(getApiKey())
     val apiKeyFlow: StateFlow<String> = _apiKeyFlow.asStateFlow()
@@ -35,8 +42,18 @@ class SettingsRepository(context: Context) {
     private val _assistantNameFlow = MutableStateFlow(getAssistantIdentity())
     val assistantNameFlow: StateFlow<String> = _assistantNameFlow.asStateFlow()
 
+    private val _timeoutSecondsFlow = MutableStateFlow(getRequestTimeoutSeconds())
+    val timeoutSecondsFlow: StateFlow<Int> = _timeoutSecondsFlow.asStateFlow()
+
+    private val _maxRetriesFlow = MutableStateFlow(getMaxRetries())
+    val maxRetriesFlow: StateFlow<Int> = _maxRetriesFlow.asStateFlow()
+
+    init {
+        applyNetworkConfig()
+    }
+
     fun getApiKey(): String {
-        val customKey = prefs.getString(KEY_API_KEY, "") ?: ""
+        val customKey = secureStore.get(KEY_API_KEY)
         if (customKey.isNotBlank()) return customKey
         // Fall back to BuildConfig.GEMINI_API_KEY if available and not a placeholder
         return try {
@@ -52,12 +69,53 @@ class SettingsRepository(context: Context) {
     }
 
     fun setApiKey(key: String) {
-        prefs.edit().putString(KEY_API_KEY, key.trim()).apply()
+        secureStore.put(KEY_API_KEY, key)
         _apiKeyFlow.value = getApiKey()
     }
 
+    /** Removes the stored key completely (encrypted blob included). */
+    fun clearApiKey() {
+        secureStore.remove(KEY_API_KEY)
+        _apiKeyFlow.value = getApiKey()
+    }
+
+    /** True when a usable key exists (user-provided or supplied at build time via .env). */
+    fun hasApiKey(): Boolean = getApiKey().isNotBlank()
+
+    fun isUserProvidedKey(): Boolean = secureStore.get(KEY_API_KEY).isNotBlank()
+
+    // ---- Gemini network configuration (real values used by GeminiClient) ----
+
+    fun getRequestTimeoutSeconds(): Int =
+        prefs.getInt(KEY_TIMEOUT_SECONDS, GeminiClient.DEFAULT_TIMEOUT_SECONDS)
+
+    fun setRequestTimeoutSeconds(seconds: Int) {
+        val clean = seconds.coerceIn(5, 180)
+        prefs.edit().putInt(KEY_TIMEOUT_SECONDS, clean).apply()
+        _timeoutSecondsFlow.value = clean
+        applyNetworkConfig()
+    }
+
+    fun getMaxRetries(): Int = prefs.getInt(KEY_MAX_RETRIES, GeminiClient.DEFAULT_MAX_RETRIES)
+
+    fun setMaxRetries(retries: Int) {
+        val clean = retries.coerceIn(0, 3)
+        prefs.edit().putInt(KEY_MAX_RETRIES, clean).apply()
+        _maxRetriesFlow.value = clean
+        applyNetworkConfig()
+    }
+
+    private fun applyNetworkConfig() {
+        GeminiClient.configure(getRequestTimeoutSeconds(), getMaxRetries())
+    }
+
     fun getModelName(): String {
-        return prefs.getString(KEY_MODEL_NAME, "gemini-3.5-flash") ?: "gemini-3.5-flash"
+        val stored = prefs.getString(KEY_MODEL_NAME, null)
+        // Older builds defaulted to a model id that the API does not serve; migrate silently.
+        if (stored.isNullOrBlank() || stored !in GeminiClient.SELECTABLE_MODELS) {
+            return GeminiClient.DEFAULT_MODEL
+        }
+        return stored
     }
 
     fun setModelName(name: String) {
@@ -135,5 +193,7 @@ class SettingsRepository(context: Context) {
         private const val KEY_CLOUD_AI_ENABLED = "key_cloud_ai_enabled"
         private const val KEY_VISION_AI_ENABLED = "key_vision_ai_enabled"
         private const val KEY_NOTIFICATION_AI_ENABLED = "key_notification_ai_enabled"
+        private const val KEY_TIMEOUT_SECONDS = "key_gemini_timeout_seconds"
+        private const val KEY_MAX_RETRIES = "key_gemini_max_retries"
     }
 }

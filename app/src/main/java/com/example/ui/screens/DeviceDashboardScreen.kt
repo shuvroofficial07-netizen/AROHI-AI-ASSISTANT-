@@ -53,6 +53,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.components.GlassCard
+import com.example.device.batteryText
+import com.example.device.chargingText
+import com.example.device.isMediaVolumeReadable
+import com.example.device.mediaVolumeText
+import com.example.device.networkText
+import com.example.device.orUnavailable
+import com.example.device.ramDetailText
+import com.example.device.ramUsedPercent
+import com.example.device.storageDetailText
+import com.example.device.storageUsedPercent
 import com.example.ui.theme.AmberWarning
 import com.example.ui.theme.CyanPrimary
 import com.example.ui.theme.EmeraldSuccess
@@ -126,8 +136,8 @@ fun DeviceDashboardScreen(
                 // Battery Card
                 DashboardMetricCard(
                     title = "Battery",
-                    value = "${telemetry.batteryPercent}%",
-                    subtitle = if (telemetry.isCharging) "Charging" else "Discharging",
+                    value = telemetry.batteryText(),
+                    subtitle = telemetry.chargingText(),
                     icon = Icons.Default.BatteryChargingFull,
                     accentColor = EmeraldSuccess,
                     hasLeadingDot = true,
@@ -135,14 +145,10 @@ fun DeviceDashboardScreen(
                 )
 
                 // Storage Card
-                val usedStorageGb = String.format(Locale.US, "%.1f", (telemetry.totalStorageGb - telemetry.freeStorageGb).coerceAtLeast(0.0))
-                val totalStorageGb = telemetry.totalStorageGb.toInt()
-                val storagePercent = if (totalStorageGb > 0) ((telemetry.totalStorageGb - telemetry.freeStorageGb) / totalStorageGb * 100).toInt() else 64
-
                 DashboardMetricCard(
                     title = "Storage",
-                    value = "$storagePercent%",
-                    subtitle = "$usedStorageGb GB / ${totalStorageGb} GB",
+                    value = telemetry.storageUsedPercent().orUnavailable(),
+                    subtitle = telemetry.storageDetailText(),
                     icon = Icons.Default.Storage,
                     accentColor = CyanPrimary,
                     modifier = Modifier.weight(1f)
@@ -155,14 +161,10 @@ fun DeviceDashboardScreen(
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 // RAM Card
-                val usedRamGb = String.format(Locale.US, "%.1f", ((telemetry.totalRamMb - telemetry.freeRamMb) / 1024f).coerceAtLeast(0f))
-                val totalRamGb = String.format(Locale.US, "%.0f", telemetry.totalRamMb / 1024f)
-                val ramPercent = if (telemetry.totalRamMb > 0) (((telemetry.totalRamMb - telemetry.freeRamMb).toFloat() / telemetry.totalRamMb) * 100).toInt() else 62
-
                 DashboardMetricCard(
                     title = "RAM",
-                    value = "$ramPercent%",
-                    subtitle = "$usedRamGb GB / $totalRamGb GB",
+                    value = telemetry.ramUsedPercent().orUnavailable(),
+                    subtitle = telemetry.ramDetailText(),
                     icon = Icons.Default.Memory,
                     accentColor = VioletBright,
                     modifier = Modifier.weight(1f)
@@ -171,7 +173,7 @@ fun DeviceDashboardScreen(
                 // Network Card
                 DashboardMetricCard(
                     title = "Network",
-                    value = telemetry.networkType,
+                    value = telemetry.networkText(),
                     subtitle = if (telemetry.isConnected) "Connected" else "Offline",
                     icon = Icons.Default.Wifi,
                     accentColor = CyanPrimary,
@@ -280,14 +282,15 @@ fun DeviceDashboardScreen(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Media Volume (${telemetry.mediaVolumePercent}%)",
+                        text = "Media Volume (${telemetry.mediaVolumeText()})",
                         fontSize = 12.sp,
                         color = TextSecondary
                     )
                 }
                 Slider(
-                    value = telemetry.mediaVolumePercent.toFloat(),
+                    value = telemetry.mediaVolumePercent.coerceIn(0, 100).toFloat(),
                     onValueChange = { viewModel.setMediaVolume(it.toInt()) },
+                    enabled = telemetry.isMediaVolumeReadable(),
                     valueRange = 0f..100f,
                     colors = SliderDefaults.colors(
                         thumbColor = CyanPrimary,

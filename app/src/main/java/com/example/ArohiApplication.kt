@@ -1,6 +1,7 @@
 package com.example
 
 import android.app.Application
+import com.example.core.CrashReporter
 import com.example.data.local.AppDatabase
 import com.example.data.repository.ConversationRepository
 import com.example.data.repository.MemoryRepository
@@ -21,6 +22,7 @@ import com.example.service.DiagnosticService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 class ArohiApplication : Application() {
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -78,7 +80,15 @@ class ArohiApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
-        appDiscoveryManager.refreshInstalledApps()
+
+        // Persist real crash reports (does not suppress crashes) so Diagnostics can show them.
+        CrashReporter.install(this)
+
+        // Indexing launchable apps touches PackageManager and can be slow on low-end devices:
+        // never block the main thread with it, and never let it break startup.
+        applicationScope.launch(Dispatchers.IO) {
+            CrashReporter.safe("appDiscovery.refresh") { appDiscoveryManager.refreshInstalledApps() }
+        }
     }
 
     companion object {
