@@ -137,6 +137,35 @@ class ArohiViewModel(application: Application) : AndroidViewModel(application) {
     val rmsLevel: StateFlow<Float> = speechManager.rmsLevel
     val isSpeaking: StateFlow<Boolean> = ttsManager.isSpeaking
 
+    // --- New modular subsystem accessors (spec §3, §76) ---
+    val timerState: StateFlow<List<com.example.time.ActiveTimer>> = app.timerEngine.timers
+
+    /** Live, device-aware capability list, re-evaluated on demand. */
+    fun capabilities(): List<com.example.core.capability.CapabilityStatusEntry> =
+        app.capabilityProbe.evaluateAll()
+
+    fun permissionRequirements(): List<com.example.core.permissions.PermissionRequirement> =
+        app.permissionManager.requirements
+
+    fun isPermissionGranted(req: com.example.core.permissions.PermissionRequirement): Boolean =
+        app.permissionManager.isGranted(req)
+
+    fun permissionStatus(req: com.example.core.permissions.PermissionRequirement) =
+        app.permissionManager.status(req)
+
+    /** Runs the REAL full self-test and returns the diagnostic report (spec §60). */
+    suspend fun runRealSelfTest(): com.example.core.diagnostics.DiagnosticReport {
+        // Re-wire diagnostics to the live voice managers so TTS/speech checks are real.
+        val diags = com.example.system.ArohiDiagnostics(
+            context = app,
+            settingsRepository = app.settingsRepository,
+            database = app.database,
+            speechRecognizer = speechManager,
+            tts = ttsManager
+        )
+        return diags.runFullReport()
+    }
+
     init {
         // Run initial diagnostics
         viewModelScope.launch(Dispatchers.IO) {

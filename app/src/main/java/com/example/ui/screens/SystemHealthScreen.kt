@@ -36,6 +36,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Accessibility
+import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.BatteryAlert
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CheckCircle
@@ -89,6 +90,7 @@ import com.example.ui.viewmodel.ArohiViewModel
 fun SystemHealthScreen(
     viewModel: ArohiViewModel,
     onNavigateToVision: () -> Unit = {},
+    onNavigateToCapabilities: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -164,6 +166,33 @@ fun SystemHealthScreen(
             isChecking = isChecking,
             onRunDiagnostics = { viewModel.runFullDiagnostics() }
         )
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // Capability discovery shortcut (spec §76) — shows real device capabilities.
+        androidx.compose.material3.Button(
+            onClick = onNavigateToCapabilities,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp)),
+            colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                containerColor = CyanPrimary.copy(alpha = 0.15f)
+            )
+        ) {
+            Icon(
+                imageVector = Icons.Default.Apps,
+                contentDescription = null,
+                tint = CyanPrimary,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                "View All Device Capabilities (Capabilities)",
+                color = CyanPrimary,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
 
         Spacer(modifier = Modifier.height(14.dp))
 

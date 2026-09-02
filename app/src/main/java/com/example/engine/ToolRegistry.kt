@@ -142,6 +142,39 @@ object ToolRegistry {
                 )
             ),
             FunctionDeclaration(
+                name = "set_timer",
+                description = "Starts a real countdown timer given a duration in seconds (e.g. 20 minutes = 1200). Speak when it fires.",
+                parameters = FunctionParameters(
+                    type = "OBJECT",
+                    properties = mapOf(
+                        "seconds" to PropertySchema(type = "INTEGER", description = "Duration in seconds"),
+                        "label" to PropertySchema(type = "STRING", description = "Optional timer name")
+                    ),
+                    required = listOf("seconds")
+                )
+            ),
+            FunctionDeclaration(
+                name = "list_timers",
+                description = "Lists currently running countdown timers with remaining time.",
+                parameters = FunctionParameters(
+                    type = "OBJECT",
+                    properties = emptyMap(),
+                    required = emptyList()
+                )
+            ),
+            FunctionDeclaration(
+                name = "set_alarm",
+                description = "Creates a real alarm via the system clock app at a given 24h hour and minute.",
+                parameters = FunctionParameters(
+                    type = "OBJECT",
+                    properties = mapOf(
+                        "hour" to PropertySchema(type = "INTEGER", description = "Hour in 24h format (0-23)"),
+                        "minute" to PropertySchema(type = "INTEGER", description = "Minute (0-59)")
+                    ),
+                    required = listOf("hour", "minute")
+                )
+            ),
+            FunctionDeclaration(
                 name = "diagnostics_check",
                 description = "Performs real-time diagnostics of all assistant subsystems: Permissions, Services, Database, Audio, and AI link",
                 parameters = FunctionParameters(

@@ -93,6 +93,7 @@ sealed class Screen(
     object Tasks : Screen("tasks", "Tasks", Icons.Filled.Checklist, Icons.Outlined.Checklist)
     object Vision : Screen("vision", "Vision", Icons.Filled.RemoveRedEye, Icons.Outlined.RemoveRedEye)
     object Diagnostics : Screen("diagnostics", "Health", Icons.Filled.PhoneAndroid, Icons.Outlined.PhoneAndroid)
+    object Capabilities : Screen("capabilities", "Capabilities", Icons.Filled.Checklist, Icons.Outlined.Checklist)
 }
 
 class MainActivity : ComponentActivity() {
@@ -287,7 +288,14 @@ fun ArohiMainApp(
             composable(Screen.Diagnostics.route) {
                 SystemHealthScreen(
                     viewModel = viewModel,
-                    onNavigateToVision = { navController.navigate(Screen.Vision.route) }
+                    onNavigateToVision = { navController.navigate(Screen.Vision.route) },
+                    onNavigateToCapabilities = { navController.navigate(Screen.Capabilities.route) }
+                )
+            }
+            composable(Screen.Capabilities.route) {
+                com.example.ui.screens.CapabilitiesScreen(
+                    viewModel = viewModel,
+                    onBack = { navController.popBackStack() }
                 )
             }
             composable(Screen.Settings.route) {

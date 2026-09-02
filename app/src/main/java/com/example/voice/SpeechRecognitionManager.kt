@@ -99,7 +99,43 @@ class SpeechRecognitionManager(
         ) == PackageManager.PERMISSION_GRANTED
     }
 
-    fun startListening(languageCode: String = "bn-BD") {
+    /** Real check: does the device have *any* speech recognizer installed? (spec §58 SPEECH). */
+    fun isRecognitionAvailable(): Boolean = try {
+        SpeechRecognizer.isRecognitionAvailable(context)
+    } catch (e: Exception) {
+        false
+    }
+
+    /** Languages Arohi will request recognition in. Availability per language is the
+     *  recognizer's responsibility; Arohi requests them explicitly. */
+    fun supportedLanguages(): List<String> =
+        if (isRecognitionAvailable()) listOf("bn-BD", "en-US", "hi-IN") else emptyList()
+
+    @Volatile
+    var currentLanguageCode: String = "bn-BD"
+        private set
+
+    /** Switches recognition language (spec §5 language selection). */
+    fun setLanguage(code: String) {
+        currentLanguageCode = code
+    }
+
+    /** True while a recognition session is active — used for barge-in/interruption. */
+    val isListening: Boolean get() = _speechState.value == SpeechState.LISTENING
+
+    /** Barge-in / interruption (spec §5): cancels an in-progress recognition. */
+    fun cancel() {
+        try {
+            speechRecognizer?.cancel()
+        } catch (e: Exception) {
+            // Ignored
+        }
+        _speechState.value = SpeechState.IDLE
+        _rmsLevel.value = 0f
+    }
+
+    fun startListening(languageCode: String = currentLanguageCode) {
+        currentLanguageCode = languageCode
         if (!hasMicPermission()) {
             onError("মাইক্রোফোন পারমিশন সক্রিয় করুন (Grant Microphone Permission)")
             return

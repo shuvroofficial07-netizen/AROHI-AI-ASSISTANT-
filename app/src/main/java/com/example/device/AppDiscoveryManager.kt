@@ -61,6 +61,18 @@ class AppDiscoveryManager(private val context: Context) {
         return null
     }
 
+    /** Builds a lowercase alias/label → real app label map for the intent classifier. */
+    fun buildAliasMap(): Map<String, String> {
+        val map = mutableMapOf<String, String>()
+        for (app in getInstalledApps()) {
+            map[app.label.lowercase(Locale.ROOT).trim()] = app.label
+            for (alias in app.aliases) {
+                map[alias.lowercase(Locale.ROOT).trim()] = app.label
+            }
+        }
+        return map
+    }
+
     fun launchApp(packageName: String): Boolean {
         return try {
             val launchIntent = packageManager.getLaunchIntentForPackage(packageName)

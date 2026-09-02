@@ -47,8 +47,22 @@ class ArohiBrain(
     private val settingsRepository: SettingsRepository,
     private val localCommandEngine: LocalCommandEngine,
     private val verificationEngine: VerificationEngine,
-    private val emotionEngine: EmotionEngine
+    private val emotionEngine: EmotionEngine,
+    private val commandOrchestrator: CommandOrchestrator,
+    private val diagnosticsProvider: suspend () -> String,
+    private val timerActions: TimerActions? = null,
+    private val alarmActions: AlarmActions? = null
 ) {
+    /** Real timer callbacks, provided by the application layer. */
+    interface TimerActions {
+        fun startSeconds(seconds: Long, label: String): String
+        fun list(): String
+    }
+
+    /** Real alarm callback, provided by the application layer. */
+    interface AlarmActions {
+        fun setAlarm(hour24: Int, minute: Int): String
+    }
 
     private val _isProcessing = MutableStateFlow(false)
     val isProcessing: StateFlow<Boolean> = _isProcessing.asStateFlow()
@@ -61,8 +75,29 @@ class ArohiBrain(
         emotionEngine.setEmotion(ArohiEmotion.THINKING)
 
         try {
-            // If no image is attached, test local engine first for instant response
+            // If no image is attached, run the real universal command pipeline first
+            // (intent → capability/permission check → execute → verify), then the
+            // legacy local command engine for instant offline handling.
             if (imageInlineData == null) {
+                val orchestrated = commandOrchestrator.handle(userInput)
+                if (orchestrated.handled) {
+                    _isProcessing.value = false
+                    emotionEngine.setEmotion(orchestrated.emotion)
+                    conversationRepository.addMessage(
+                        role = "AROHI",
+                        content = orchestrated.text,
+                        emotion = orchestrated.emotion.name,
+                        isVoice = true,
+                        toolCallJson = orchestrated.toolName
+                    )
+                    return BrainResponse(
+                        text = orchestrated.text,
+                        emotion = orchestrated.emotion,
+                        toolCall = orchestrated.toolName,
+                        isLocalOnly = true
+                    )
+                }
+
                 val localResult = localCommandEngine.tryExecuteLocally(userInput)
                 if (localResult.isHandled) {
                     _isProcessing.value = false
@@ -299,12 +334,27 @@ class ArohiBrain(
                     "মেমোরি তথ্য:\n" + results.joinToString("\n") { "• ${it.key}: ${it.value}" }
                 }
             }
+            "set_timer" -> {
+                val seconds = args["seconds"]?.toString()?.toDoubleOrNull()?.toLong() ?: 0L
+                val label = args["label"]?.toString() ?: "Timer"
+                timerActions?.startSeconds(seconds, label)
+                    ?: "টাইমার ইঞ্জিন প্রস্তুত নয়।"
+            }
+            "list_timers" -> {
+                timerActions?.list() ?: "চলমান কোনো টাইমার নেই।"
+            }
+            "set_alarm" -> {
+                val hour = args["hour"]?.toString()?.toDoubleOrNull()?.toInt() ?: -1
+                val minute = args["minute"]?.toString()?.toDoubleOrNull()?.toInt() ?: 0
+                if (hour in 0..23) {
+                    alarmActions?.setAlarm(hour, minute) ?: "অ্যালার্ম ইঞ্জিন প্রস্তুত নয়।"
+                } else {
+                    "অ্যালার্মের সময়টি সঠিক নয়।"
+                }
+            }
             "diagnostics_check" -> {
-                val telemetry = deviceStateManager.getTelemetry()
-                val hasMic = contactsManager.hasContactsPermission()
-                val isAccess = ArohiAccessibilityService.isServiceRunning()
-                val isNotif = ArohiNotificationListenerService.isConnected
-                "সিস্টেম ডায়াগনস্টিকস:\n• ব্যাটারি ও সেন্সর: সচল\n• কন্ট্রোল সার্ভিস: ${if (isAccess) "সক্রিয়" else "নিষ্ক্রিয়"}\n• নোটিফিকেশন লিসেনার: ${if (isNotif) "সংযুক্ত" else "অপেক্ষারত"}\n• ওএস: ${telemetry.androidVersion}"
+                // Real diagnostic report — no hardcoded/fake health (spec §58).
+                diagnosticsProvider()
             }
             else -> "কমান্ড '$name' সম্পন্ন করা হয়েছে।"
         }
