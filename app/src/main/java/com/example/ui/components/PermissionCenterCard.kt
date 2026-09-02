@@ -256,7 +256,8 @@ private fun Context.openSettings(action: String, data: Uri? = null) {
     }
     try {
         startActivity(intent)
-    } catch (e: ActivityNotFoundException) {
+    } catch (e: Exception) {
+        // ActivityNotFoundException and OEM-specific SecurityException variants — never crash.
         Toast.makeText(
             this,
             "এই ডিভাইসে এই সেটিংস স্ক্রিনটি নেই।",

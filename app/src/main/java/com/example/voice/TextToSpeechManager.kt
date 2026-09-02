@@ -23,11 +23,22 @@ class TextToSpeechManager(
     private var currentPitch = 1.15f
     private var currentSpeed = 1.0f
 
+    /**
+     * Speech requested while the TTS engine is still initialising is queued here and spoken
+     * as soon as the engine is ready, instead of being silently dropped.
+     */
+    @Volatile
+    private var pendingSpeech: String? = null
+
     init {
         tts = TextToSpeech(context.applicationContext) { status ->
             if (status == TextToSpeech.SUCCESS) {
                 isInitialized = true
                 setupLanguageAndVoice()
+                pendingSpeech?.let { queued ->
+                    pendingSpeech = null
+                    speak(queued)
+                }
             }
         }
     }
@@ -77,7 +88,12 @@ class TextToSpeechManager(
     }
 
     fun speak(text: String, utteranceId: String = "arohi_speech_${System.currentTimeMillis()}") {
-        if (!isInitialized || text.isBlank()) return
+        if (text.isBlank()) return
+        if (!isInitialized) {
+            // Engine still starting up — queue instead of silently dropping the first reply.
+            pendingSpeech = text
+            return
+        }
 
         stop() // Stop previous speech
 
@@ -86,7 +102,12 @@ class TextToSpeechManager(
             putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId)
         }
 
-        tts?.speak(cleanText, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
+        try {
+            tts?.speak(cleanText, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
+        } catch (e: Exception) {
+            // A broken TTS engine must never take the app down.
+            _isSpeaking.value = false
+        }
     }
 
     fun stop() {

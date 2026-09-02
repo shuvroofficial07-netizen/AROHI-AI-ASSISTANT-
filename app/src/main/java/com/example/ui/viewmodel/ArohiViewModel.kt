@@ -190,6 +190,8 @@ class ArohiViewModel(application: Application) : AndroidViewModel(application) {
         if (cleanInput.isEmpty() && imageBase64 == null) return
 
         viewModelScope.launch(Dispatchers.IO) {
+            // Coroutine-boundary guard: nothing in this pipeline may ever escape and crash the app.
+            try {
             // Save user message to Room
             app.conversationRepository.addMessage(
                 role = "USER",
@@ -208,6 +210,9 @@ class ArohiViewModel(application: Application) : AndroidViewModel(application) {
                 launch(Dispatchers.Main) {
                     ttsManager.speak(response.text)
                 }
+            }
+            } catch (t: Throwable) {
+                android.util.Log.e("ArohiViewModel", "sendUserMessage pipeline failed", t)
             }
         }
     }
@@ -439,8 +444,8 @@ class ArohiViewModel(application: Application) : AndroidViewModel(application) {
                         ttsManager.speak(response.text)
                     }
                 }
-            } catch (e: Exception) {
-                app.taskLogRepository.markFinished(id, false, e.localizedMessage ?: "Unknown error")
+            } catch (t: Throwable) {
+                app.taskLogRepository.markFinished(id, false, t.localizedMessage ?: t.javaClass.simpleName ?: "Unknown error")
             } finally {
                 _runningTaskIds.value = _runningTaskIds.value - id
             }

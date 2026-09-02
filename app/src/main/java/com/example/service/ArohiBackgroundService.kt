@@ -130,6 +130,27 @@ class ArohiBackgroundService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    /**
+     * Android 15+ enforces a 6-hour cumulative runtime limit on the dataSync foreground
+     * service type. When the limit is reached the platform calls [onTimeout]; if the service
+     * does not stop itself the system crashes the process with
+     * ForegroundServiceDidNotStopInTimeException. We stop gracefully and report the real state.
+     */
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        Log.i(TAG, "Foreground service type $fgsType timed out (Android 15+ limit); stopping gracefully")
+        _state.value = BackgroundServiceState.STOPPED
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
+    /** Short-service timeout (API 34+) — same graceful stop, never let the system crash us. */
+    override fun onTimeout(startId: Int) {
+        Log.i(TAG, "Foreground service timed out; stopping gracefully")
+        _state.value = BackgroundServiceState.STOPPED
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
         // The UI was swiped away; the foreground service itself keeps running.

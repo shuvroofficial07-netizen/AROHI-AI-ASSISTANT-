@@ -119,7 +119,8 @@ fun AssistantChatScreen(
 
     LaunchedEffect(messages.size, isProcessing) {
         if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size - 1)
+            // Guarded: the list can change while the scroll animation is pending.
+            runCatching { listState.animateScrollToItem((messages.size - 1).coerceAtLeast(0)) }
         }
     }
 

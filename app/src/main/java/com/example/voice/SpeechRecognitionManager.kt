@@ -100,6 +100,11 @@ class SpeechRecognitionManager(
     }
 
     fun startListening(languageCode: String = "bn-BD") {
+        if (!SpeechRecognizer.isRecognitionAvailable(context)) {
+            onError("এই ডিভাইসে কোনো ভয়েস রিকগনিশন সার্ভিস নেই (No speech recognition service)")
+            _speechState.value = SpeechState.IDLE
+            return
+        }
         if (!hasMicPermission()) {
             onError("মাইক্রোফোন পারমিশন সক্রিয় করুন (Grant Microphone Permission)")
             return

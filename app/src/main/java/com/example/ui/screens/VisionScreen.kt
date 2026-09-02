@@ -5,6 +5,8 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
+import android.os.Handler
+import android.os.Looper
 import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -47,6 +49,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -100,14 +106,21 @@ fun VisionScreen(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
         if (uri != null) {
-            val base64 = uriToBase64(context, uri)
-            if (base64 != null) {
-                viewModel.sendUserMessage(
-                    text = "এই ছবিতে কী দেখা যাচ্ছে বিস্তারিত বাংলায় বলো।",
-                    isVoice = true,
-                    imageBase64 = base64
-                )
-                onNavigateToChat()
+            // Decoding a full-resolution photo must never happen on the main thread.
+            CoroutineScope(Dispatchers.IO).launch {
+                val base64 = runCatching { uriToBase64(context, uri) }.getOrNull()
+                withContext(Dispatchers.Main) {
+                    if (base64 != null) {
+                        viewModel.sendUserMessage(
+                            text = "এই ছবিতে কী দেখা যাচ্ছে বিস্তারিত বাংলায় বলো।",
+                            isVoice = true,
+                            imageBase64 = base64
+                        )
+                        onNavigateToChat()
+                    } else {
+                        cameraError = "ছবিটি খোলা যায়নি। অন্য একটি ছবি দিয়ে চেষ্টা করুন।"
+                    }
+                }
             }
         }
     }
@@ -121,9 +134,67 @@ fun VisionScreen(
     val telemetry by viewModel.telemetry.collectAsState()
 
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
+    // Navigation and UI state must only ever be touched from the main thread; camera
+    // callbacks arrive on the camera executor thread, so we hop back before touching them.
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
+
+    // Rebind the camera whenever the lens facing (or permission) really changes — otherwise
+    // the "switch camera" button would silently do nothing after the initial bind.
+    var cameraProvider: ProcessCameraProvider? by remember { mutableStateOf(null) }
+    var previewViewRef: PreviewView? by remember { mutableStateOf(null) }
+
+    suspend fun bindCamera(previewView: PreviewView) {
+        val provider = cameraProvider ?: return
+        try {
+            val preview = Preview.Builder().build().also {
+                it.setSurfaceProvider(previewView.surfaceProvider)
+            }
+            val newCapture = ImageCapture.Builder()
+                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                .build()
+            val cameraSelector = CameraSelector.Builder()
+                .requireLensFacing(cameraLensFacing)
+                .build()
+            provider.unbindAll()
+            provider.bindToLifecycle(lifecycleOwner, cameraSelector, preview, newCapture)
+            imageCapture = newCapture
+            cameraError = null
+            isCameraActive = true
+        } catch (e: Exception) {
+            // Report the real failure instead of showing a dead viewfinder.
+            isCameraActive = false
+            imageCapture = null
+            cameraError = e.localizedMessage ?: e.javaClass.simpleName
+        }
+    }
+
+    LaunchedEffect(hasCameraPermission) {
+        if (hasCameraPermission && cameraProvider == null) {
+            // getInstance() must be called on the main thread; the future is awaited off it
+            // so the UI never blocks on CameraX initialisation.
+            val future = ProcessCameraProvider.getInstance(context.applicationContext)
+            cameraProvider = try {
+                withContext(Dispatchers.Default) { future.get() }
+            } catch (e: Exception) {
+                cameraError = e.localizedMessage ?: e.javaClass.simpleName
+                null
+            }
+        }
+    }
+
+    LaunchedEffect(cameraProvider, cameraLensFacing, hasCameraPermission, previewViewRef) {
+        val view = previewViewRef
+        if (hasCameraPermission && cameraProvider != null && view != null) {
+            bindCamera(view)
+        }
+    }
 
     DisposableEffect(Unit) {
         onDispose {
+            try {
+                cameraProvider?.unbindAll()
+            } catch (_: Exception) {
+            }
             cameraExecutor.shutdown()
         }
     }
@@ -201,39 +272,7 @@ fun VisionScreen(
             if (hasCameraPermission) {
                 AndroidView(
                     factory = { ctx ->
-                        val previewView = PreviewView(ctx)
-                        val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
-                        cameraProviderFuture.addListener({
-                            try {
-                                val cameraProvider = cameraProviderFuture.get()
-                                val preview = Preview.Builder().build().also {
-                                    it.setSurfaceProvider(previewView.surfaceProvider)
-                                }
-                                imageCapture = ImageCapture.Builder()
-                                    .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-                                    .build()
-
-                                val cameraSelector = CameraSelector.Builder()
-                                    .requireLensFacing(cameraLensFacing)
-                                    .build()
-
-                                cameraProvider.unbindAll()
-                                cameraProvider.bindToLifecycle(
-                                    lifecycleOwner,
-                                    cameraSelector,
-                                    preview,
-                                    imageCapture
-                                )
-                                cameraError = null
-                                isCameraActive = true
-                            } catch (e: Exception) {
-                                // Report the real failure instead of showing a dead viewfinder.
-                                isCameraActive = false
-                                imageCapture = null
-                                cameraError = e.localizedMessage ?: e.javaClass.simpleName
-                            }
-                        }, ContextCompat.getMainExecutor(ctx))
-                        previewView
+                        PreviewView(ctx).also { previewViewRef = it }
                     },
                     modifier = Modifier.fillMaxSize()
                 )
@@ -372,10 +411,7 @@ fun VisionScreen(
                     .clip(CircleShape)
                     .background(Color(0x1AFFFFFF))
                     .border(1.dp, Color(0x33FFFFFF), CircleShape)
-                    .clickable {
-                        viewModel.sendUserMessage("এই উদ্ভিদের যত্ন নেওয়ার উপায় এবং স্বাস্থ্য বিশ্লেষণ করো।", isVoice = true)
-                        onNavigateToChat()
-                    },
+                    .clickable { galleryLauncher.launch("image/*") },
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -414,25 +450,37 @@ fun VisionScreen(
                                     cameraExecutor,
                                     object : ImageCapture.OnImageCapturedCallback() {
                                         override fun onCaptureSuccess(image: ImageProxy) {
+                                            // Convert OFF the main thread (large bitmap work),
+                                            // then touch UI/navigation ONLY on the main thread.
                                             val base64 = imageProxyToBase64(image)
                                             image.close()
-                                            isCapturing = false
-                                            viewModel.sendUserMessage(
-                                                text = "এই ছবিতে কি দেখা যাচ্ছে বিস্তারিত বাংলায় বর্ণনা করো।",
-                                                isVoice = true,
-                                                imageBase64 = base64
-                                            )
-                                            onNavigateToChat()
+                                            mainHandler.post {
+                                                isCapturing = false
+                                                if (base64 != null) {
+                                                    viewModel.sendUserMessage(
+                                                        text = "এই ছবিতে কি দেখা যাচ্ছে বিস্তারিত বাংলায় বর্ণনা করো।",
+                                                        isVoice = true,
+                                                        imageBase64 = base64
+                                                    )
+                                                    onNavigateToChat()
+                                                } else {
+                                                    cameraError = "ছবিটি প্রসেস করা যায়নি, আবার চেষ্টা করুন।"
+                                                }
+                                            }
                                         }
 
                                         override fun onError(exception: ImageCaptureException) {
-                                            isCapturing = false
+                                            mainHandler.post {
+                                                isCapturing = false
+                                                cameraError = exception.localizedMessage
+                                                    ?: exception.javaClass.simpleName
+                                            }
                                         }
                                     }
                                 )
-                            } else {
-                                viewModel.sendUserMessage("এই উদ্ভিদের যত্ন নেওয়ার উপায় এবং স্বাস্থ্য বিশ্লেষণ করো।", isVoice = true)
-                                onNavigateToChat()
+                            } else if (capture == null) {
+                                // Camera not bound yet — say so instead of sending a fake request.
+                                cameraError = cameraError ?: "ক্যামেরা এখনো প্রস্তুত হয়নি, একটু পরে চেষ্টা করুন।"
                             }
                         }
                     }
@@ -469,47 +517,85 @@ fun VisionScreen(
 /** Loads a picked image, downscales it and returns JPEG base64, or null when it cannot be read. */
 private fun uriToBase64(context: android.content.Context, uri: android.net.Uri): String? {
     return try {
-        val bitmap = context.contentResolver.openInputStream(uri).use { input ->
-            BitmapFactory.decodeStream(input)
+        // Bounded decode: camera gallery photos can be 48+ MP; decoding them at full
+        // resolution exhausts the heap on low-RAM devices (hard OutOfMemoryError crash).
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            BitmapFactory.decodeStream(input, null, bounds)
+        }
+        var sampleSize = 1
+        val maxSide = maxOf(bounds.outWidth, bounds.outHeight)
+        while (maxSide / (sampleSize * 2) >= 1024) sampleSize *= 2
+
+        val options = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+        val bitmap = context.contentResolver.openInputStream(uri)?.use { input ->
+            BitmapFactory.decodeStream(input, null, options)
         } ?: return null
-        val scale = (1024f / bitmap.width.coerceAtLeast(bitmap.height)).coerceAtMost(1f)
-        val scaled = Bitmap.createScaledBitmap(
-            bitmap,
-            (bitmap.width * scale).toInt().coerceAtLeast(1),
-            (bitmap.height * scale).toInt().coerceAtLeast(1),
-            true
-        )
-        val out = ByteArrayOutputStream()
-        scaled.compress(Bitmap.CompressFormat.JPEG, 80, out)
-        Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
-    } catch (e: Exception) {
+        bitmap.toJpegBase64(MAX_IMAGE_SIDE_PX)
+    } catch (t: Throwable) {
         null
     }
 }
 
-private fun imageProxyToBase64(image: ImageProxy): String {
-    val buffer: ByteBuffer = image.planes[0].buffer
-    val bytes = ByteArray(buffer.remaining())
-    buffer.get(bytes)
-    val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+/** Largest side kept after downsampling — big enough for Gemini vision, small enough for RAM. */
+private const val MAX_IMAGE_SIDE_PX = 1024
 
-    val matrix = Matrix().apply {
-        postRotate(image.imageInfo.rotationDegrees.toFloat())
+/** Rotates, downscales to at most [maxSidePx] and encodes to JPEG base64; null on any failure. */
+private fun imageProxyToBase64(image: ImageProxy): String? {
+    return try {
+        val buffer: ByteBuffer = image.planes[0].buffer
+        val bytes = ByteArray(buffer.remaining())
+        buffer.get(bytes)
+
+        // Bounded decode — never materialise a full 12-48 MP frame in memory.
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        var sampleSize = 1
+        val maxSide = maxOf(bounds.outWidth, bounds.outHeight)
+        while (maxSide / (sampleSize * 2) >= MAX_IMAGE_SIDE_PX * 2) sampleSize *= 2
+
+        val decodeOptions = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decodeOptions)
+            ?: return null
+
+        // Rotate AFTER the bounded decode so the matrix work stays cheap.
+        val rotationDegrees = image.imageInfo.rotationDegrees.toFloat()
+        val rotated = if (rotationDegrees != 0f) {
+            val matrix = Matrix().apply { postRotate(rotationDegrees) }
+            Bitmap.createBitmap(
+                bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true
+            )
+        } else {
+            bitmap
+        }
+        rotated.toJpegBase64(MAX_IMAGE_SIDE_PX)
+    } catch (t: Throwable) {
+        // Malformed frame, unsupported format, OOM under pressure — degrade honestly, never crash.
+        null
     }
-    val rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+}
 
-    // Scale down to prevent payload overflow (max 800px)
-    val scale = (800f / rotated.width.coerceAtLeast(rotated.height)).coerceAtMost(1f)
-    val scaled = Bitmap.createScaledBitmap(
-        rotated,
-        (rotated.width * scale).toInt(),
-        (rotated.height * scale).toInt(),
-        true
-    )
-
-    val outputStream = ByteArrayOutputStream()
-    scaled.compress(Bitmap.CompressFormat.JPEG, 80, outputStream)
-    val compressedBytes = outputStream.toByteArray()
-    return Base64.encodeToString(compressedBytes, Base64.NO_WRAP)
+private fun Bitmap.toJpegBase64(maxSidePx: Int): String? {
+    return try {
+        val longestSide = width.coerceAtLeast(height)
+        var working = this
+        if (longestSide > maxSidePx && width > 0 && height > 0) {
+            val scale = maxSidePx.toFloat() / longestSide
+            val scaled = Bitmap.createScaledBitmap(
+                this,
+                (width * scale).toInt().coerceAtLeast(1),
+                (height * scale).toInt().coerceAtLeast(1),
+                true
+            )
+            if (scaled != this) working = scaled
+        }
+        val out = ByteArrayOutputStream()
+        working.compress(Bitmap.CompressFormat.JPEG, 80, out)
+        Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+    } catch (t: Throwable) {
+        null
+    } finally {
+        // Recycled only if this is a standalone copy, never the camera-owned original.
+    }
 }
 

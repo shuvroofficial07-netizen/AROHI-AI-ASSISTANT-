@@ -62,6 +62,7 @@ fun SplashScreen(
 ) {
     var progress by remember { mutableFloatStateOf(0f) }
     var currentPhaseText by remember { mutableStateOf("Starting Arohi…") }
+    var hasFinished by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         // Branding animation only — this bar does NOT claim to verify subsystems.
@@ -73,7 +74,17 @@ fun SplashScreen(
         }
         currentPhaseText = "Arohi AI Assistant by Shù Vrô"
         delay(300)
-        onFinish()
+        if (!hasFinished) {
+            hasFinished = true
+            onFinish()
+        }
+    }
+
+    val finishOnce = {
+        if (!hasFinished) {
+            hasFinished = true
+            onFinish()
+        }
     }
 
     val animatedProgress by animateFloatAsState(
@@ -106,7 +117,7 @@ fun SplashScreen(
         modifier = modifier
             .fillMaxSize()
             .background(Color(0xFF020205))
-            .clickable { onFinish() }
+            .clickable { finishOnce() }
             .testTag("splash_screen_view"),
         contentAlignment = Alignment.Center
     ) {

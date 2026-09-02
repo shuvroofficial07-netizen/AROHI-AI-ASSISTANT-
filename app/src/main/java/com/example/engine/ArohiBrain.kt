@@ -206,10 +206,11 @@ class ArohiBrain(
                 emotion = inferredEmotion
             )
 
-        } catch (e: Exception) {
+        } catch (t: Throwable) {
+            // Last-resort boundary: an escaping exception here would crash the whole app.
             _isProcessing.value = false
             emotionEngine.setEmotion(ArohiEmotion.ERROR)
-            val errText = "সাময়িক সমস্যা হয়েছে: ${e.localizedMessage ?: "অজানা ত্রুটি"}"
+            val errText = "সাময়িক সমস্যা হয়েছে: ${(t.localizedMessage ?: t.javaClass.simpleName) ?: "অজানা ত্রুটি"}"
             return BrainResponse(text = errText, emotion = ArohiEmotion.ERROR)
         }
     }
