@@ -60,10 +60,14 @@ jobs:
           cat .env | sed 's/=.*/=***/' 
 
       - name: Run unit tests (real logic verification)
-        run: gradle :app:testDebugUnitTest --stacktrace --no-daemon --console=plain
+        run: |
+          set -o pipefail
+          gradle :app:testDebugUnitTest --stacktrace --no-daemon --console=plain 2>&1 | tee ci-test.log
 
       - name: Build debug APK
-        run: ./gradlew :app:assembleDebug --stacktrace --no-daemon
+        run: |
+          set -o pipefail
+          ./gradlew :app:assembleDebug --stacktrace --no-daemon 2>&1 | tee ci-assemble-debug.log
 
       - name: Build signed release APK
         env:
@@ -82,7 +86,45 @@ jobs:
               -validity 10000 \
               -dname "CN=Arohi AI Assistant,O=Shu Vro,C=BD"
           fi
-          ./gradlew :app:assembleRelease --stacktrace --no-daemon
+          set -o pipefail
+          ./gradlew :app:assembleRelease --stacktrace --no-daemon 2>&1 | tee ci-assemble-release.log
+
+      # Because raw Actions logs are not always downloadable, failures push a
+      # diagnostics bundle back to the branch so the exact Gradle error can be
+      # inspected. (Committed with [skip ci] to avoid trigger loops.)
+      - name: Publish failure diagnostics to branch
+        if: failure()
+        run: |
+          git config user.name "arohi-ci-bot"
+          git config user.email "ci@arohi.invalid"
+          mkdir -p ci-diagnostics
+          {
+            echo "Run: ${{ github.run_id }} attempt ${{ github.run_attempt }}"
+            echo "Commit: ${{ github.sha }}"
+            echo "Date: $(date -u)"
+            for LOG in ci-test.log ci-assemble-debug.log ci-assemble-release.log; do
+              if [ -f "$LOG" ]; then
+                echo ""
+                echo "================ $LOG (tail 400) ================"
+                tail -400 "$LOG"
+              fi
+            done
+          } > ci-diagnostics/last-failure.txt
+          git add ci-diagnostics
+          git commit -m "ci: diagnostics for run ${{ github.run_id }} [skip ci]"
+          git push
+
+      - name: Clear diagnostics on success
+        if: success()
+        run: |
+          if [ -d ci-diagnostics ] && [ -n "$(ls -A ci-diagnostics 2>/dev/null)" ]; then
+            git config user.name "arohi-ci-bot"
+            git config user.email "ci@arohi.invalid"
+            git rm -r --cached ci-diagnostics >/dev/null 2>&1 || true
+            rm -rf ci-diagnostics
+            git commit -m "ci: build green — clear diagnostics [skip ci]" || true
+            git push || true
+          fi
 
       - name: Verify APKs exist
         run: |
