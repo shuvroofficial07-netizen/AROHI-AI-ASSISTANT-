@@ -8,12 +8,30 @@ data class ExecutionVerification(
 
 class VerificationEngine {
 
-    fun verifyAppLaunch(success: Boolean, appLabel: String): ExecutionVerification {
+    /**
+     * [foregroundVerified] is null when Android gave us no way to confirm which app is in the
+     * foreground (no Accessibility connection). In that case we say so instead of claiming success.
+     */
+    fun verifyAppLaunch(
+        success: Boolean,
+        appLabel: String,
+        foregroundVerified: Boolean? = null
+    ): ExecutionVerification {
         return if (success) {
-            ExecutionVerification(
-                isSuccess = true,
-                summary = "$appLabel অ্যাপটি সফলভাবে চালু করা হয়েছে।"
-            )
+            when (foregroundVerified) {
+                true -> ExecutionVerification(
+                    isSuccess = true,
+                    summary = "$appLabel অ্যাপটি চালু হয়েছে এবং এখন সামনে আছে (verified)।"
+                )
+                false -> ExecutionVerification(
+                    isSuccess = false,
+                    summary = "$appLabel চালু করার অনুরোধ পাঠিয়েছি, কিন্তু অ্যাপটি সামনে এসেছে বলে যাচাই করতে পারিনি।"
+                )
+                null -> ExecutionVerification(
+                    isSuccess = true,
+                    summary = "$appLabel চালু করার অনুরোধ Android গ্রহণ করেছে। (Accessibility ছাড়া foreground যাচাই করা সম্ভব নয়।)"
+                )
+            }
         } else {
             ExecutionVerification(
                 isSuccess = false,

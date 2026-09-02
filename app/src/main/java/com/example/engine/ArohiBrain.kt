@@ -224,7 +224,14 @@ class ArohiBrain(
                 val foundApp = appDiscoveryManager.findApp(appName)
                 if (foundApp != null) {
                     val launched = appDiscoveryManager.launchApp(foundApp.packageName)
-                    verificationEngine.verifyAppLaunch(launched, foundApp.label).summary
+                    val foregroundVerified: Boolean? =
+                        if (launched && ArohiAccessibilityService.instance != null) {
+                            kotlinx.coroutines.delay(900)
+                            ArohiAccessibilityService.instance?.currentForegroundPackage == foundApp.packageName
+                        } else {
+                            null
+                        }
+                    verificationEngine.verifyAppLaunch(launched, foundApp.label, foregroundVerified).summary
                 } else {
                     "'$appName' অ্যাপটি আপনার ডিভাইসে খুঁজে পাওয়া যায়নি।"
                 }
