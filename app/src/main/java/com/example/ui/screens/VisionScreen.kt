@@ -8,7 +8,7 @@ import android.graphics.Matrix
 import android.net.Uri
 import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualRequest
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
@@ -505,7 +505,9 @@ fun VisionScreen(
                     .border(1.dp, Color(0x33FFFFFF), CircleShape)
                     .clickable {
                         galleryPicker.launch(
-                            PickVisualRequest(ActivityResultContracts.PickVisualRequestDefaults.ImageOnly)
+                            PickVisualMediaRequest.Builder()
+                                .setMediaType(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                .build()
                         )
                     },
                 contentAlignment = Alignment.Center
@@ -534,7 +536,7 @@ fun VisionScreen(
                     .border(2.dp, CyanPrimary, CircleShape)
                     .padding(6.dp)
                     .clip(CircleShape)
-                    .background(Color.WHITE)
+                    .background(Color.White)
                     .clickable {
                         if (!hasCameraPermission) {
                             permissionLauncher.launch(Manifest.permission.CAMERA)

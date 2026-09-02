@@ -75,7 +75,7 @@ object GeminiClient {
                     return if (body != null) {
                         GeminiResult.Success(body)
                     } else {
-                        GeminiResult.Failure(ApiError.invalidResponse)
+                        GeminiResult.Failure(GeminiErrorMapper.invalidResponse)
                     }
                 }
 
@@ -100,7 +100,7 @@ object GeminiClient {
             }
         }
 
-        return GeminiResult.Failure(lastError ?: ApiError.invalidResponse)
+        return GeminiResult.Failure(lastError ?: GeminiErrorMapper.invalidResponse)
     }
 
     /**
