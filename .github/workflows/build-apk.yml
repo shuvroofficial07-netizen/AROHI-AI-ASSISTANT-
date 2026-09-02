@@ -97,6 +97,7 @@ jobs:
         run: |
           git config user.name "arohi-ci-bot"
           git config user.email "ci@arohi.invalid"
+          git pull --rebase origin ${{ github.head_ref || github.ref_name }} || true
           mkdir -p ci-diagnostics
           {
             echo "Run: ${{ github.run_id }} attempt ${{ github.run_attempt }}"
@@ -110,7 +111,7 @@ jobs:
               fi
             done
           } > ci-diagnostics/last-failure.txt
-          git add ci-diagnostics
+          git add -f ci-diagnostics
           git commit -m "ci: diagnostics for run ${{ github.run_id }} [skip ci]"
           git push
 
