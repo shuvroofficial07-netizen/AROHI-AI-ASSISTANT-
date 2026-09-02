@@ -53,11 +53,13 @@ jobs:
 
       - name: Create minimal .env if missing
         run: |
+          # NOTE: the value must never be empty — the secrets plugin generates
+          # `String GEMINI_API_KEY = ;` (invalid Java) for empty values. The
+          # placeholder from .env.example compiles and is filtered at runtime.
           if [ ! -f ".env" ]; then
             cp .env.example .env || true
-            echo "GEMINI_API_KEY=" >> .env
           fi
-          cat .env | sed 's/=.*/=***/' 
+          sed 's/=.*/=***/' .env
 
       - name: Run unit tests (real logic verification)
         run: |
