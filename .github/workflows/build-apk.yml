@@ -67,7 +67,31 @@ jobs:
           fi
 
       - name: Build debug APK
-        run: ./gradlew :app:assembleDebug --stacktrace --no-daemon
+        run: |
+          set -o pipefail
+          ./gradlew :app:assembleDebug --stacktrace --no-daemon 2>&1 | tee build.log
+
+      - name: Surface build failure details
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "### Build failed - log tail" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          tail -n 150 build.log >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          grep -E "^(e: |w: .*error|error:|FAILURE:|\* What went wrong:|Caused by:|> Task .*FAILED)" build.log | tail -n 40 | while IFS= read -r line; do
+            printf '::error::%s\n' "$line"
+          done
+          {
+            echo "CI build failure (run $GITHUB_RUN_ID)"
+            echo ''
+            echo '```'
+            grep -E "^e: |error:|FAILURE:|Caused by:" build.log | tail -n 60 || tail -n 60 build.log
+            echo '```'
+          } > failure-comment.md
+          gh api -X POST "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" \
+            -f body="$(cat failure-comment.md)" >/dev/null || echo "comment upload failed"
 
       - name: Verify APK exists
         run: |

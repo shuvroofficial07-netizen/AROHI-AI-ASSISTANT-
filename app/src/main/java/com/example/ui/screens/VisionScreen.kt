@@ -116,7 +116,7 @@ fun VisionScreen(
     var imageCapture: ImageCapture? by remember { mutableStateOf(null) }
     var isCapturing by remember { mutableStateOf(false) }
     var isCameraActive by remember { mutableStateOf(false) }
-    var cameraError: String? by remember { mutableStateOf(null) }
+    var cameraError by remember { mutableStateOf<String?>(null) }
     val isProcessing by viewModel.isProcessing.collectAsState()
     val telemetry by viewModel.telemetry.collectAsState()
 
