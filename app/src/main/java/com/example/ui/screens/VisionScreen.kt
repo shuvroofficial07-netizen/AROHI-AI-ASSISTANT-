@@ -95,6 +95,9 @@ fun VisionScreen(
         )
     }
 
+    // Declared before the launchers below so their callbacks can report into it.
+    var cameraError by remember { mutableStateOf<String?>(null) }
+
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -129,7 +132,6 @@ fun VisionScreen(
     var imageCapture: ImageCapture? by remember { mutableStateOf(null) }
     var isCapturing by remember { mutableStateOf(false) }
     var isCameraActive by remember { mutableStateOf(false) }
-    var cameraError by remember { mutableStateOf<String?>(null) }
     val isProcessing by viewModel.isProcessing.collectAsState()
     val telemetry by viewModel.telemetry.collectAsState()
 
