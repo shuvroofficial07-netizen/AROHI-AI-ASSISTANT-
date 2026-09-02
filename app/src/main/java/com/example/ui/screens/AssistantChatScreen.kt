@@ -368,10 +368,12 @@ fun AssistantChatScreen(
                     )
                 }
             } else {
+                // Real recognizer state: LISTENING (capturing) or STARTING (warming up)
                 val isListening = speechState == SpeechState.LISTENING
+                val isMicStarting = speechState == SpeechState.STARTING
                 FilledIconButton(
                     onClick = {
-                        if (isListening) viewModel.stopListening() else startVoiceInput()
+                        if (isListening || isMicStarting) viewModel.stopListening() else startVoiceInput()
                     },
                     colors = IconButtonDefaults.filledIconButtonColors(
                         containerColor = if (isListening) EmeraldSuccess else Color(0x1AFFFFFF)
@@ -382,7 +384,7 @@ fun AssistantChatScreen(
                         .testTag("chat_mic_button")
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Mic,
+                        imageVector = if (isListening || isMicStarting) Icons.Default.MicOff else Icons.Default.Mic,
                         contentDescription = "Voice Input",
                         tint = if (isListening) Color(0xFF020205) else CyanPrimary,
                         modifier = Modifier.size(22.dp)

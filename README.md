@@ -1,10 +1,26 @@
 # AROHI AI Assistant by Shù Vrô
 
-**Version 13.97.7 — Autonomous Android AI Operating Layer**
+**Version 14.0.0 — Autonomous Android AI Operating Layer (Final Production Release)**
 
 AROHI is a real, working Android AI assistant built with Kotlin + Jetpack Compose. No fake data, no simulated actions — every reading and every action comes from real device APIs.
 
 ![Icon](app/src/main/res/drawable/arohi_app_icon_1788201070726.jpg)
+
+## 🛠 What was repaired in v14.0.0 (no fake functionality)
+
+- **Startup**: the branded splash ("Arohi AI Assistant by Shù Vrô") is now the real start destination — previously it was registered but never shown; the app opened straight to Home.
+- **Vision AI**: removed the hardcoded "Monstera Deliciosa 96%" detection box, the fabricated plant-health card and the always-on LIVE badge. The gallery button now opens the REAL Android photo picker and sends the actual image to Gemini; the LIVE/NO SIGNAL badge reflects the real CameraX bind state; capture errors are reported honestly.
+- **Silence command**: "টর্চ বন্ধ করো" / "stop the music" were hijacked by the over-eager silence matcher — now strict phrase matching with device-keyword exclusion, and "চুপ করো" now actually stops TTS instead of announcing "I'll be quiet" out loud.
+- **Offline memory**: "মনে রেখো …" really writes to the Room memories table (verified by row id) and "কী মনে আছে?" really reads it back — even without an API key.
+- **Network layer**: structured error model (DNS failure / timeout / TLS / HTTP 400-5xx / invalid key / rate limit / model unavailable) with real Bengali+English explanations, retry with backoff on transient errors, and the API key moved from the URL query string to the `x-goog-api-key` header so it can never leak into logs.
+- **API key security**: the key is now stored in EncryptedSharedPreferences (Android Keystore) with automatic migration of existing plaintext keys.
+- **Background service**: switched from the `microphone` FGS type (which crashes on Android 14+ when mic permission is missing) to the honest `specialUse` type; start failures are caught and reported with the real exception instead of crashing.
+- **Speech recognition**: added real availability check, honest STARTING→LISTENING state transitions, and busy-engine recovery; the UI now shows what the recognizer is actually doing.
+- **TTS**: text requested during engine init is queued and spoken once ready — the "Test Voice" button can no longer silently do nothing.
+- **Diagnostics**: new REAL checks — live network/validated-internet state, a genuine database write→read→delete probe, TTS engine presence, and storage writability — all wired to the existing Health screen with working action buttons.
+- **Notification listener**: scoped coroutines + honest disconnect state (no stale "connected").
+- **No dead buttons**: the Inbox filter button now genuinely toggles all/unread; the Settings "Test Voice" button reports a real not-ready state.
+- Removed the unused `SYSTEM_ALERT_WINDOW` permission (permission minimization).
 
 ## ✅ What actually works (real implementation)
 

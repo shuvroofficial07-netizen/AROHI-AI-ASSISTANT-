@@ -1,12 +1,7 @@
 package com.example.data.remote
 
-import com.squareup.moshi.Moshi
-import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
-import okhttp3.OkHttpClient
-import okhttp3.logging.HttpLoggingInterceptor
-import retrofit2.Retrofit
-import retrofit2.converter.moshi.MoshiConverterFactory
-import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.delay
+import retrofit2.Response
 
 enum class GeminiConnectionState {
     CONNECTED,
@@ -20,30 +15,37 @@ enum class GeminiConnectionState {
 
 object GeminiClient {
     private const val BASE_URL = "https://generativelanguage.googleapis.com/"
+    private const val MAX_ATTEMPTS = 2
+    private const val RETRY_DELAY_MS = 1200L
 
-    private val moshi: Moshi by lazy {
-        Moshi.Builder()
-            .add(KotlinJsonAdapterFactory())
+    private val moshi: com.squareup.moshi.Moshi by lazy {
+        com.squareup.moshi.Moshi.Builder()
+            .add(com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory())
             .build()
     }
 
-    private val okHttpClient: OkHttpClient by lazy {
-        val logging = HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BASIC
+    private val okHttpClient: okhttp3.OkHttpClient by lazy {
+        // BASIC level logs only the request line + status line — the API key is
+        // sent in the x-goog-api-key header, so it can never appear in logs.
+        val logging = okhttp3.logging.HttpLoggingInterceptor().apply {
+            level = okhttp3.logging.HttpLoggingInterceptor.Level.BASIC
+            redactHeader("x-goog-api-key")
         }
-        OkHttpClient.Builder()
-            .connectTimeout(60, TimeUnit.SECONDS)
-            .readTimeout(60, TimeUnit.SECONDS)
-            .writeTimeout(60, TimeUnit.SECONDS)
+        okhttp3.OkHttpClient.Builder()
+            .connectTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+            .writeTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+            .callTimeout(90, java.util.concurrent.TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
             .addInterceptor(logging)
             .build()
     }
 
-    private val retrofit: Retrofit by lazy {
-        Retrofit.Builder()
+    private val retrofit: retrofit2.Retrofit by lazy {
+        retrofit2.Retrofit.Builder()
             .baseUrl(BASE_URL)
             .client(okHttpClient)
-            .addConverterFactory(MoshiConverterFactory.create(moshi))
+            .addConverterFactory(retrofit2.converter.moshi.MoshiConverterFactory.create(moshi))
             .build()
     }
 
@@ -51,38 +53,90 @@ object GeminiClient {
         retrofit.create(GeminiApiService::class.java)
     }
 
-    suspend fun testConnection(apiKey: String, model: String = "gemini-3.5-flash"): Pair<GeminiConnectionState, String> {
+    /**
+     * Performs a REAL generateContent request with timeout, retry-with-backoff on
+     * transient failures and a structured error result. Never throws for network
+     * problems; only rethrows if the caller's coroutine is cancelled.
+     */
+    suspend fun generateContent(
+        model: String,
+        apiKey: String,
+        request: GenerateContentRequest
+    ): GeminiResult {
+        var lastError: ApiError? = null
+
+        repeat(MAX_ATTEMPTS) { attempt ->
+            try {
+                val response: Response<GenerateContentResponse> =
+                    service.generateContent(model = model, apiKey = apiKey, request = request)
+
+                if (response.isSuccessful) {
+                    val body = response.body()
+                    return if (body != null) {
+                        GeminiResult.Success(body)
+                    } else {
+                        GeminiResult.Failure(ApiError.invalidResponse)
+                    }
+                }
+
+                val errorBody = try { response.errorBody()?.string() } catch (e: Exception) { null }
+                val error = GeminiErrorMapper.fromHttp(response.code(), errorBody)
+                if (!error.isRetryable) {
+                    return GeminiResult.Failure(error)
+                }
+                lastError = error
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                val error = GeminiErrorMapper.fromException(e)
+                if (!error.isRetryable) {
+                    return GeminiResult.Failure(error)
+                }
+                lastError = error
+            }
+
+            if (attempt < MAX_ATTEMPTS - 1) {
+                delay(RETRY_DELAY_MS)
+            }
+        }
+
+        return GeminiResult.Failure(lastError ?: ApiError.invalidResponse)
+    }
+
+    /**
+     * Tests the connection with a REAL minimal API request and classifies the
+     * actual outcome. An invalid key is never reported as valid.
+     */
+    suspend fun testConnection(
+        apiKey: String,
+        model: String = "gemini-3.5-flash"
+    ): Pair<GeminiConnectionState, String> {
         if (apiKey.isBlank()) {
             return Pair(GeminiConnectionState.DISCONNECTED, "API Key is empty")
         }
-        return try {
-            val request = GenerateContentRequest(
-                contents = listOf(
-                    Content(
-                        parts = listOf(Part(text = "Hello, are you ready?"))
-                    )
-                ),
-                generationConfig = GenerationConfig(maxOutputTokens = 10)
-            )
-            val response = service.generateContent(model = model, apiKey = apiKey, request = request)
-            if (response.isSuccessful) {
-                Pair(GeminiConnectionState.CONNECTED, "Gemini Connected (${model})")
-            } else {
-                val code = response.code()
-                val errorBody = response.errorBody()?.string() ?: ""
-                when {
-                    code == 400 || code == 403 || errorBody.contains("API_KEY_INVALID", ignoreCase = true) ->
-                        Pair(GeminiConnectionState.INVALID_KEY, "Invalid or unauthorized API key")
-                    code == 429 ->
-                        Pair(GeminiConnectionState.RATE_LIMITED, "Rate limit exceeded. Please wait.")
-                    code == 404 ->
-                        Pair(GeminiConnectionState.MODEL_UNAVAILABLE, "Model $model not found")
-                    else ->
-                        Pair(GeminiConnectionState.NETWORK_ERROR, "Server responded with error code $code")
+
+        val request = GenerateContentRequest(
+            contents = listOf(
+                Content(parts = listOf(Part(text = "Hello, are you ready?")))
+            ),
+            generationConfig = GenerationConfig(maxOutputTokens = 10)
+        )
+
+        return when (val result = generateContent(model, apiKey, request)) {
+            is GeminiResult.Success -> {
+                // The request succeeded — but also verify a real candidate came back,
+                // otherwise the key/model pair is not genuinely usable.
+                val hasContent = result.body.candidates?.isNotEmpty() == true ||
+                    result.body.error == null
+                if (hasContent) {
+                    Pair(GeminiConnectionState.CONNECTED, "Gemini Connected ($model)")
+                } else {
+                    Pair(GeminiConnectionState.MODEL_UNAVAILABLE, "Model $model returned no content")
                 }
             }
-        } catch (e: Exception) {
-            Pair(GeminiConnectionState.NETWORK_ERROR, e.localizedMessage ?: "Network connection failure")
+            is GeminiResult.Failure -> {
+                Pair(GeminiErrorMapper.toConnectionState(result.error), result.error.userMessage)
+            }
         }
     }
 }

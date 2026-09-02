@@ -79,9 +79,14 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     val currentApiKey by viewModel.apiKeyFlow.collectAsState()
+    val currentModel by viewModel.modelNameFlow.collectAsState()
+    val geminiState by viewModel.geminiState.collectAsState()
+    val geminiMessage by viewModel.geminiStatusMessage.collectAsState()
+    val ttsReady by viewModel.ttsManager.isReady.collectAsState()
 
     var apiKeyInput by remember(currentApiKey) { mutableStateOf(currentApiKey) }
     var isApiKeyVisible by remember { mutableStateOf(false) }
+    var modelInput by remember(currentModel) { mutableStateOf(currentModel) }
 
     var pitchSlider by remember { mutableFloatStateOf(1.15f) }
     var speedSlider by remember { mutableFloatStateOf(1.0f) }
@@ -165,6 +170,53 @@ fun SettingsScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
+                // Model configuration — a wrong model name produces a real 404,
+                // so it can be corrected here and re-tested with a real request.
+                OutlinedTextField(
+                    value = modelInput,
+                    onValueChange = { modelInput = it },
+                    label = { Text("Model (যেমন: gemini-3.5-flash)", color = TextSecondary) },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("model_input_field"),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = VioletBright,
+                        unfocusedBorderColor = Color(0x1AFFFFFF),
+                        focusedContainerColor = Color(0x0DFFFFFF),
+                        unfocusedContainerColor = Color(0x0DFFFFFF),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // REAL connection status — reflects the last genuine API test
+                val (statusColor, statusText) = when (geminiState) {
+                    com.example.data.remote.GeminiConnectionState.CONNECTED ->
+                        Pair(EmeraldSuccess, "সংযুক্ত: $geminiMessage")
+                    com.example.data.remote.GeminiConnectionState.CHECKING ->
+                        Pair(CyanPrimary, "সংযোগ পরীক্ষা চলছে...")
+                    com.example.data.remote.GeminiConnectionState.INVALID_KEY ->
+                        Pair(MagentaAccent, "API Key সঠিক নয়: $geminiMessage")
+                    com.example.data.remote.GeminiConnectionState.MODEL_UNAVAILABLE ->
+                        Pair(MagentaAccent, "মডেল পাওয়া যায়নি: $geminiMessage")
+                    com.example.data.remote.GeminiConnectionState.RATE_LIMITED ->
+                        Pair(Color(0xFFF59E0B), "রেট লিমিট: $geminiMessage")
+                    else -> Pair(Color(0xFFF59E0B), "সংযোগ নেই: $geminiMessage")
+                }
+                Text(
+                    text = statusText,
+                    fontSize = 11.sp,
+                    color = statusColor,
+                    lineHeight = 15.sp,
+                    modifier = Modifier.testTag("gemini_status_text")
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
@@ -179,7 +231,12 @@ fun SettingsScreen(
                     }
 
                     Button(
-                        onClick = { viewModel.saveApiKey(apiKeyInput) },
+                        onClick = {
+                            viewModel.saveApiKey(apiKeyInput)
+                            if (modelInput.isNotBlank()) {
+                                viewModel.saveModelName(modelInput)
+                            }
+                        },
                         colors = ButtonDefaults.buttonColors(containerColor = CyanPrimary),
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.testTag("save_api_key_btn")
@@ -371,7 +428,18 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Button(
-                    onClick = { viewModel.ttsManager.speak("নমস্কার! আমি আরোহী, আপনার ভয়েস অ্যাসিস্ট্যান্ট।") },
+                    onClick = {
+                        if (ttsReady) {
+                            viewModel.ttsManager.speak("নমস্কার! আমি আরোহী, আপনার ভয়েস অ্যাসিস্ট্যান্ট।")
+                        } else {
+                            // Honest report — the TTS engine genuinely is not ready yet.
+                            android.widget.Toast.makeText(
+                                context,
+                                "TTS ইঞ্জিন এখনো প্রস্তুত হয়নি — এক সেকেন্ড পর আবার চেষ্টা করুন।",
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0x14FFFFFF)),
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.align(Alignment.End)
@@ -414,7 +482,7 @@ fun SettingsScreen(
                     color = CyanPrimary
                 )
                 Text(
-                    text = "Version 13.99.0 (Final Production Release)",
+                    text = "Version 14.0.0 (Final Production Release)",
                     fontSize = 12.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.SemiBold,

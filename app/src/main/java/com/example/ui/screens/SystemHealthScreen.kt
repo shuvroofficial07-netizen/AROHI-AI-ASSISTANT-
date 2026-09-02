@@ -218,6 +218,42 @@ fun SystemHealthScreen(
                 onAction = {
                     when (item.id) {
                         "gemini_ai" -> viewModel.checkGeminiConnection(viewModel.apiKeyFlow.value)
+                        "network_connectivity" -> {
+                            val intent = Intent(Settings.ACTION_WIRELESS_SETTINGS).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            try { context.startActivity(intent) } catch (e: Exception) {}
+                        }
+                        "tts_engine" -> {
+                            val intent = Intent("com.android.settings.TTS_SETTINGS").apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            try {
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                try {
+                                    context.startActivity(
+                                        Intent(Settings.ACTION_SETTINGS).apply {
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        }
+                                    )
+                                } catch (ex: Exception) { /* no settings available */ }
+                            }
+                        }
+                        "storage" -> {
+                            val intent = Intent(Settings.ACTION_INTERNAL_STORAGE_SETTINGS).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            try { context.startActivity(intent) } catch (e: Exception) {
+                                try {
+                                    context.startActivity(
+                                        Intent(Settings.ACTION_SETTINGS).apply {
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        }
+                                    )
+                                } catch (ex: Exception) { }
+                            }
+                        }
                         "background_service" -> {
                             if (item.status == DiagnosticStatusLevel.READY) {
                                 viewModel.stopBackgroundOperatingService()

@@ -94,7 +94,10 @@ fun HomeScreen(
     val speechState by viewModel.speechState.collectAsState()
     val isSpeaking by viewModel.isSpeaking.collectAsState()
     val telemetry by viewModel.telemetry.collectAsState()
+    // The visual state follows the REAL recognizer state — LISTENING only once
+    // the engine is actually capturing audio; STARTING shows the mic warming up.
     val isListening = speechState == SpeechState.LISTENING
+    val isMicStarting = speechState == SpeechState.STARTING
 
     // Android 13+ requires POST_NOTIFICATIONS for the persistent foreground service notification
     val context = LocalContext.current
@@ -295,7 +298,7 @@ fun HomeScreen(
                 .clickable {
                     if (isSpeaking) {
                         viewModel.silenceAssistant()
-                    } else if (isListening) {
+                    } else if (isListening || isMicStarting) {
                         viewModel.stopListening()
                     } else {
                         viewModel.startListening()
@@ -475,7 +478,7 @@ fun HomeScreen(
                 )
                 .border(1.dp, Color(0x338B5CF6), RoundedCornerShape(20.dp))
                 .clickable {
-                    if (isListening) {
+                    if (isListening || isMicStarting) {
                         viewModel.stopListening()
                     } else {
                         viewModel.startListening()
@@ -508,10 +511,14 @@ fun HomeScreen(
                     }
 
                     Text(
-                        text = if (isListening) "বলুন, আমি শুনছি..." else "Tap to speak with Arohi...",
+                        text = when {
+                            isListening -> "বলুন, আমি শুনছি..."
+                            isMicStarting -> "মাইক্রোফোন চালু হচ্ছে..."
+                            else -> "Tap to speak with Arohi..."
+                        },
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
-                        color = if (isListening) MagentaAccent else TextSecondary
+                        color = if (isListening || isMicStarting) MagentaAccent else TextSecondary
                     )
                 }
 

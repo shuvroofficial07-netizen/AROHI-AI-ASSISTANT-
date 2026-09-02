@@ -61,11 +61,11 @@ fun SplashScreen(
     modifier: Modifier = Modifier
 ) {
     var progress by remember { mutableFloatStateOf(0f) }
-    var currentPhaseText by remember { mutableStateOf("Initializing Arohi v13.97.7...") }
+    var currentPhaseText by remember { mutableStateOf("Initializing Arohi v14.0.0...") }
 
     LaunchedEffect(Unit) {
         val phases = listOf(
-            "Initializing Arohi v13.97.7...",
+            "Initializing Arohi v14.0.0...",
             "Checking voice engine...",
             "Checking Gemini connection...",
             "Checking system permissions...",

@@ -28,6 +28,7 @@ import com.example.voice.SpeechState
 import com.example.voice.TextToSpeechManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.SharingStarted
@@ -143,9 +144,9 @@ class ArohiViewModel(application: Application) : AndroidViewModel(application) {
             runFullDiagnostics()
         }
 
-        // Start telemetry polling loop
+        // Start telemetry polling loop (cancels with the ViewModel's scope)
         viewModelScope.launch(Dispatchers.Default) {
-            while (true) {
+            while (isActive) {
                 _telemetry.value = app.deviceStateManager.getTelemetry()
                 refreshDiagnostics()
                 delay(3000)
@@ -175,8 +176,11 @@ class ArohiViewModel(application: Application) : AndroidViewModel(application) {
 
             val response = app.brain.processInput(cleanInput, imageInline)
 
-            // Speak response if voice or general assistant response
-            if (!app.settingsRepository.isSilenceMode() && response.text.isNotBlank()) {
+            // The silence command must genuinely stop speech — never announce
+            // "I'll be quiet" out loud.
+            if (response.toolCall == "silence") {
+                launch(Dispatchers.Main) { ttsManager.stop() }
+            } else if (!app.settingsRepository.isSilenceMode() && response.text.isNotBlank()) {
                 launch(Dispatchers.Main) {
                     ttsManager.speak(response.text)
                 }
@@ -213,6 +217,12 @@ class ArohiViewModel(application: Application) : AndroidViewModel(application) {
     fun saveApiKey(apiKey: String) {
         app.settingsRepository.setApiKey(apiKey)
         checkGeminiConnection(apiKey)
+    }
+
+    fun saveModelName(modelName: String) {
+        app.settingsRepository.setModelName(modelName)
+        // Re-verify with the newly saved model using a REAL request.
+        checkGeminiConnection(app.settingsRepository.getApiKey())
     }
 
     fun checkGeminiConnection(apiKey: String) {
@@ -272,13 +282,21 @@ class ArohiViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun startBackgroundOperatingService() {
+        // The service reports its REAL state asynchronously; re-read it shortly
+        // after requesting the start so the UI reflects what actually happened.
         ArohiBackgroundService.startService(app)
-        refreshDiagnostics()
+        viewModelScope.launch {
+            delay(600)
+            refreshDiagnostics()
+        }
     }
 
     fun stopBackgroundOperatingService() {
         ArohiBackgroundService.stopService(app)
-        refreshDiagnostics()
+        viewModelScope.launch {
+            delay(300)
+            refreshDiagnostics()
+        }
     }
 
     fun saveMemory(category: String, key: String, value: String) {

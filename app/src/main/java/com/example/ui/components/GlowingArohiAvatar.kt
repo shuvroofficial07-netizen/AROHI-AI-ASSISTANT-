@@ -97,6 +97,7 @@ fun GlowingArohiAvatar(
         speechState == SpeechState.LISTENING -> 1.0f + (rmsLevel * 0.35f)
         isSpeaking -> breathingPulse * 1.05f
         speechState == SpeechState.PROCESSING -> breathingPulse * 0.98f
+        speechState == SpeechState.STARTING -> 1.02f
         else -> breathingPulse
     }
 
@@ -241,7 +242,7 @@ fun GlowingArohiAvatar(
             )
 
             // 8. Center Pure White Glowing Spark (with intense halo)
-            val sparkRadius = 6.dp.toPx() * (if (isSpeaking || speechState == SpeechState.LISTENING) 1.25f else 1.0f)
+            val sparkRadius = 6.dp.toPx() * (if (isSpeaking || speechState == SpeechState.LISTENING || speechState == SpeechState.STARTING) 1.25f else 1.0f)
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(

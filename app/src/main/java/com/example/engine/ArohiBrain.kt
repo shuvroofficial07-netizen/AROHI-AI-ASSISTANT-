@@ -8,6 +8,7 @@ import com.example.data.remote.FunctionResponse
 import com.example.data.remote.GenerateContentRequest
 import com.example.data.remote.GenerationConfig
 import com.example.data.remote.GeminiClient
+import com.example.data.remote.GeminiResult
 import com.example.data.remote.InlineData
 import com.example.data.remote.Part
 import com.example.data.repository.ConversationRepository
@@ -134,21 +135,25 @@ class ArohiBrain(
                 )
             )
 
-            val apiResponse = GeminiClient.service.generateContent(
+            // REAL request through the hardened client: timeout, retry/backoff and
+            // a structured error model — failures surface the genuine reason.
+            val apiResult = GeminiClient.generateContent(
                 model = modelName,
                 apiKey = apiKey,
                 request = request
             )
 
-            if (!apiResponse.isSuccessful) {
-                val code = apiResponse.code()
-                val err = "Gemini সার্ভার সমস্যা ($code)। অনুগ্রহ করে নেটওয়ার্ক ও API কী যাচাই করুন।"
-                _isProcessing.value = false
-                emotionEngine.setEmotion(ArohiEmotion.ERROR)
-                return BrainResponse(text = err, emotion = ArohiEmotion.ERROR)
+            val apiResponse = when (apiResult) {
+                is GeminiResult.Success -> apiResult.body
+                is GeminiResult.Failure -> {
+                    val err = apiResult.error
+                    _isProcessing.value = false
+                    emotionEngine.setEmotion(ArohiEmotion.ERROR)
+                    return BrainResponse(text = err.userMessage, emotion = ArohiEmotion.ERROR)
+                }
             }
 
-            val candidate = apiResponse.body()?.candidates?.firstOrNull()
+            val candidate = apiResponse.candidates?.firstOrNull()
             val modelContent = candidate?.content
             val firstPart = modelContent?.parts?.firstOrNull()
 
