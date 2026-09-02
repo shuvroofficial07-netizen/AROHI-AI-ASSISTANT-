@@ -159,7 +159,9 @@ object GeminiErrorMapper {
             val moshi = com.squareup.moshi.Moshi.Builder()
                 .add(com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory())
                 .build()
-            moshi.adapter(GeminiError::class.java).fromJson(body)
+            // The real Gemini error body is {"error": {"code":..,"message":..,"status":..}}
+            // — unwrap the envelope before reading the fields.
+            moshi.adapter(GeminiErrorEnvelope::class.java).fromJson(body)?.error
         } catch (e: Exception) {
             null
         }
