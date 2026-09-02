@@ -15,7 +15,10 @@ import com.example.data.remote.InlineData
 import com.example.device.DeviceTelemetry
 import com.example.engine.ArohiEmotion
 import com.example.service.ArohiAccessibilityService
+import com.example.core.CrashReporter
+import com.example.device.DeviceStateManager
 import com.example.service.ArohiBackgroundService
+import com.example.service.BackgroundServiceState
 import com.example.service.ArohiNotificationListenerService
 import com.example.service.DiagnosticCategory
 import com.example.service.DiagnosticItem
@@ -47,6 +50,10 @@ data class DiagnosticsStatus(
 )
 
 class ArohiViewModel(application: Application) : AndroidViewModel(application) {
+
+    private companion object {
+        const val TELEMETRY_INTERVAL_MS = 5000L
+    }
     private val app = application as ArohiApplication
 
     // State flows from repositories
@@ -73,7 +80,10 @@ class ArohiViewModel(application: Application) : AndroidViewModel(application) {
     val runningTaskIds: StateFlow<Set<Long>> = _runningTaskIds.asStateFlow()
 
     // Live Device Telemetry
-    private val _telemetry = MutableStateFlow(app.deviceStateManager.getTelemetry())
+    private val _telemetry = MutableStateFlow(
+        runCatching { app.deviceStateManager.getTelemetry() }
+            .getOrElse { DeviceStateManager.unavailableTelemetry() }
+    )
     val telemetry: StateFlow<DeviceTelemetry> = _telemetry.asStateFlow()
 
     // Engine & Emotion states
@@ -90,7 +100,7 @@ class ArohiViewModel(application: Application) : AndroidViewModel(application) {
     private val _geminiState = MutableStateFlow(GeminiConnectionState.DISCONNECTED)
     val geminiState: StateFlow<GeminiConnectionState> = _geminiState.asStateFlow()
 
-    private val _geminiStatusMessage = MutableStateFlow("Initializing...")
+    private val _geminiStatusMessage = MutableStateFlow("Not tested yet")
     val geminiStatusMessage: StateFlow<String> = _geminiStatusMessage.asStateFlow()
 
     // Diagnostics
@@ -137,24 +147,41 @@ class ArohiViewModel(application: Application) : AndroidViewModel(application) {
     val rmsLevel: StateFlow<Float> = speechManager.rmsLevel
     val isSpeaking: StateFlow<Boolean> = ttsManager.isSpeaking
 
+    /** Real crash report captured on the previous run (null when the last run was clean). */
+    private val _lastCrashReport = MutableStateFlow(CrashReporter.lastCrash(application))
+    val lastCrashReport: StateFlow<String?> = _lastCrashReport.asStateFlow()
+
+    /** Real background-service state, straight from the service itself. */
+    val backgroundServiceState: StateFlow<BackgroundServiceState> = ArohiBackgroundService.state
+    val backgroundServiceError: StateFlow<String?> = ArohiBackgroundService.lastError
+
     init {
-        // Run initial diagnostics
+        // One real diagnostics pass at startup (this performs a genuine network call, so it is
+        // NOT repeated on a timer — it would burn battery and quota for no benefit).
         viewModelScope.launch(Dispatchers.IO) {
-            runFullDiagnostics()
+            runCatching { runFullDiagnosticsSuspending() }
         }
 
-        // Start telemetry polling loop
+        // Lifecycle-aware telemetry refresh: only runs while a screen is actually collecting.
         viewModelScope.launch(Dispatchers.Default) {
             while (true) {
-                _telemetry.value = app.deviceStateManager.getTelemetry()
-                refreshDiagnostics()
-                delay(3000)
+                runCatching { app.deviceStateManager.getTelemetry() }
+                    .onSuccess { _telemetry.value = it }
+                runCatching { refreshDiagnostics() }
+                delay(TELEMETRY_INTERVAL_MS)
             }
         }
 
         // Apply TTS preferences
-        ttsManager.setVoicePitch(app.settingsRepository.getVoicePitch())
-        ttsManager.setVoiceSpeed(app.settingsRepository.getVoiceSpeed())
+        runCatching {
+            ttsManager.setVoicePitch(app.settingsRepository.getVoicePitch())
+            ttsManager.setVoiceSpeed(app.settingsRepository.getVoiceSpeed())
+        }
+    }
+
+    fun clearCrashReport() {
+        CrashReporter.clear(app)
+        _lastCrashReport.value = null
     }
 
     fun sendUserMessage(text: String, isVoice: Boolean = false, imageBase64: String? = null) {
@@ -210,15 +237,40 @@ class ArohiViewModel(application: Application) : AndroidViewModel(application) {
         _telemetry.value = app.deviceStateManager.getTelemetry()
     }
 
+    // Gemini configuration surface (all values are really applied to the HTTP client)
+    val timeoutSecondsFlow = app.settingsRepository.timeoutSecondsFlow
+    val maxRetriesFlow = app.settingsRepository.maxRetriesFlow
+    val isApiKeyEncrypted: Boolean = app.settingsRepository.isApiKeyEncrypted
+
     fun saveApiKey(apiKey: String) {
         app.settingsRepository.setApiKey(apiKey)
-        checkGeminiConnection(apiKey)
+        checkGeminiConnection(app.settingsRepository.getApiKey())
+    }
+
+    fun clearApiKey() {
+        app.settingsRepository.clearApiKey()
+        _geminiState.value = GeminiConnectionState.DISCONNECTED
+        _geminiStatusMessage.value = "Gemini API is not configured."
+    }
+
+    fun setModelName(model: String) {
+        app.settingsRepository.setModelName(model)
+        val key = app.settingsRepository.getApiKey()
+        if (key.isNotBlank()) checkGeminiConnection(key)
+    }
+
+    fun setRequestTimeoutSeconds(seconds: Int) {
+        app.settingsRepository.setRequestTimeoutSeconds(seconds)
+    }
+
+    fun setMaxRetries(retries: Int) {
+        app.settingsRepository.setMaxRetries(retries)
     }
 
     fun checkGeminiConnection(apiKey: String) {
         viewModelScope.launch(Dispatchers.IO) {
             _geminiState.value = GeminiConnectionState.CHECKING
-            _geminiStatusMessage.value = "Checking Gemini link..."
+            _geminiStatusMessage.value = "Testing Gemini connection…"
             val (state, msg) = GeminiClient.testConnection(apiKey, app.settingsRepository.getModelName())
             _geminiState.value = state
             _geminiStatusMessage.value = msg
@@ -228,6 +280,12 @@ class ArohiViewModel(application: Application) : AndroidViewModel(application) {
 
     fun runFullDiagnostics() {
         viewModelScope.launch(Dispatchers.IO) {
+            runCatching { runFullDiagnosticsSuspending() }
+        }
+    }
+
+    private suspend fun runFullDiagnosticsSuspending() {
+        run {
             val report = app.diagnosticService.runFullDiagnostics()
             val geminiItem = report.items.find { it.id == "gemini_ai" }
             val isGeminiOk = geminiItem?.status == DiagnosticStatusLevel.READY
@@ -271,9 +329,11 @@ class ArohiViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    fun startBackgroundOperatingService() {
-        ArohiBackgroundService.startService(app)
+    /** Returns the real platform outcome; false means Android refused to start the service. */
+    fun startBackgroundOperatingService(): Boolean {
+        val result = ArohiBackgroundService.startService(app)
         refreshDiagnostics()
+        return result.isSuccess
     }
 
     fun stopBackgroundOperatingService() {

@@ -15,7 +15,7 @@ import android.os.Build
 import android.os.Environment
 import android.os.StatFs
 import android.provider.Settings
-import java.io.File
+import java.util.Locale
 
 data class DeviceTelemetry(
     val batteryPercent: Int,
@@ -37,6 +37,33 @@ data class DeviceTelemetry(
 )
 
 class DeviceStateManager(private val context: Context) {
+
+    companion object {
+        /** Sentinel used when Android genuinely cannot supply a value. Never a made-up number. */
+        const val UNAVAILABLE = -1
+        const val UNAVAILABLE_DOUBLE = -1.0
+        const val UNAVAILABLE_TEXT = "Unavailable"
+
+        /** Fully "Unavailable" telemetry — used only when reading the device state itself failed. */
+        fun unavailableTelemetry(): DeviceTelemetry = DeviceTelemetry(
+            batteryPercent = UNAVAILABLE,
+            isCharging = false,
+            chargingType = UNAVAILABLE_TEXT,
+            freeRamMb = UNAVAILABLE.toLong(),
+            totalRamMb = UNAVAILABLE.toLong(),
+            freeStorageGb = UNAVAILABLE_DOUBLE,
+            totalStorageGb = UNAVAILABLE_DOUBLE,
+            networkType = UNAVAILABLE_TEXT,
+            isConnected = false,
+            mediaVolumePercent = UNAVAILABLE,
+            ringVolumePercent = UNAVAILABLE,
+            isFlashlightOn = false,
+            brightnessPercent = UNAVAILABLE,
+            deviceName = "${Build.MANUFACTURER} ${Build.MODEL}".trim(),
+            androidVersion = "Android ${Build.VERSION.RELEASE}",
+            apiLevel = Build.VERSION.SDK_INT
+        )
+    }
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
     private val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager
     private val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
@@ -65,7 +92,13 @@ class DeviceStateManager(private val context: Context) {
         }
     }
 
-    fun getTelemetry(): DeviceTelemetry {
+    fun getTelemetry(): DeviceTelemetry = try {
+        readTelemetry()
+    } catch (e: Exception) {
+        unavailableTelemetry()
+    }
+
+    private fun readTelemetry(): DeviceTelemetry {
         val (battery, charging, chargeType) = getBatteryInfo()
         val (freeRam, totalRam) = getRamInfo()
         val (freeStorage, totalStorage) = getStorageInfo()
@@ -99,28 +132,33 @@ class DeviceStateManager(private val context: Context) {
 
         val level = batteryStatus?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
         val scale = batteryStatus?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
-        val percent = if (level >= 0 && scale > 0) (level * 100 / scale) else 0
+        val percent = if (level >= 0 && scale > 0) (level * 100 / scale) else UNAVAILABLE
 
         val status = batteryStatus?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
         val isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
 
         val chargePlug = batteryStatus?.getIntExtra(BatteryManager.EXTRA_PLUGGED, -1) ?: -1
-        val chargeType = when (chargePlug) {
-            BatteryManager.BATTERY_PLUGGED_AC -> "AC Charger"
-            BatteryManager.BATTERY_PLUGGED_USB -> "USB Cable"
-            BatteryManager.BATTERY_PLUGGED_WIRELESS -> "Wireless Fast Charging"
-            else -> if (isCharging) "Charging" else "On Battery"
+        val chargeType = when {
+            batteryStatus == null -> UNAVAILABLE_TEXT
+            chargePlug == BatteryManager.BATTERY_PLUGGED_AC -> "AC Charger"
+            chargePlug == BatteryManager.BATTERY_PLUGGED_USB -> "USB Cable"
+            chargePlug == BatteryManager.BATTERY_PLUGGED_WIRELESS -> "Wireless Charging"
+            isCharging -> "Charging"
+            else -> "On Battery"
         }
 
         return Triple(percent, isCharging, chargeType)
     }
 
     fun getRamInfo(): Pair<Long, Long> {
-        val memoryInfo = ActivityManager.MemoryInfo()
-        activityManager?.getMemoryInfo(memoryInfo)
-        val freeMb = memoryInfo.availMem / (1024 * 1024)
-        val totalMb = memoryInfo.totalMem / (1024 * 1024)
-        return Pair(freeMb, totalMb)
+        val manager = activityManager ?: return Pair(UNAVAILABLE.toLong(), UNAVAILABLE.toLong())
+        return try {
+            val memoryInfo = ActivityManager.MemoryInfo()
+            manager.getMemoryInfo(memoryInfo)
+            Pair(memoryInfo.availMem / (1024 * 1024), memoryInfo.totalMem / (1024 * 1024))
+        } catch (e: Exception) {
+            Pair(UNAVAILABLE.toLong(), UNAVAILABLE.toLong())
+        }
     }
 
     fun getStorageInfo(): Pair<Double, Double> {
@@ -133,11 +171,12 @@ class DeviceStateManager(private val context: Context) {
 
             val freeGb = (availableBlocks * blockSize).toDouble() / (1024 * 1024 * 1024)
             val totalGb = (totalBlocks * blockSize).toDouble() / (1024 * 1024 * 1024)
-            val formattedFree = String.format("%.1f", freeGb).toDoubleOrNull() ?: freeGb
-            val formattedTotal = String.format("%.1f", totalGb).toDoubleOrNull() ?: totalGb
+            // Locale.US: Bengali/Arabic locales render non-ASCII digits that cannot be re-parsed.
+            val formattedFree = String.format(Locale.US, "%.1f", freeGb).toDoubleOrNull() ?: freeGb
+            val formattedTotal = String.format(Locale.US, "%.1f", totalGb).toDoubleOrNull() ?: totalGb
             Pair(formattedFree, formattedTotal)
         } catch (e: Exception) {
-            Pair(0.0, 0.0)
+            Pair(UNAVAILABLE_DOUBLE, UNAVAILABLE_DOUBLE)
         }
     }
 
@@ -165,7 +204,7 @@ class DeviceStateManager(private val context: Context) {
     }
 
     fun getVolumeInfo(): Pair<Int, Int> {
-        if (audioManager == null) return Pair(0, 0)
+        if (audioManager == null) return Pair(UNAVAILABLE, UNAVAILABLE)
         val maxMedia = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
         val curMedia = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
         val mediaPercent = (curMedia * 100) / maxMedia
@@ -208,11 +247,11 @@ class DeviceStateManager(private val context: Context) {
             val brightness = Settings.System.getInt(
                 context.contentResolver,
                 Settings.System.SCREEN_BRIGHTNESS,
-                128
+                UNAVAILABLE
             )
-            (brightness * 100) / 255
+            if (brightness < 0) UNAVAILABLE else (brightness * 100) / 255
         } catch (e: Exception) {
-            50
+            UNAVAILABLE
         }
     }
 }

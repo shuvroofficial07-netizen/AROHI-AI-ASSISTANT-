@@ -15,7 +15,6 @@ import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -35,12 +34,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Cameraswitch
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.FlashOn
-import androidx.compose.material.icons.filled.FlashlightOn
 import androidx.compose.material.icons.filled.PhotoLibrary
-import androidx.compose.material.icons.filled.WbSunny
-import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -57,18 +52,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
-import com.example.R
 import com.example.ui.theme.CyanPrimary
 import com.example.ui.theme.EmeraldSuccess
 import com.example.ui.theme.MagentaAccent
@@ -102,9 +95,28 @@ fun VisionScreen(
         hasCameraPermission = granted
     }
 
+    // Real gallery picker: the selected image is genuinely sent to Gemini for analysis.
+    val galleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            val base64 = uriToBase64(context, uri)
+            if (base64 != null) {
+                viewModel.sendUserMessage(
+                    text = "এই ছবিতে কী দেখা যাচ্ছে বিস্তারিত বাংলায় বলো।",
+                    isVoice = true,
+                    imageBase64 = base64
+                )
+                onNavigateToChat()
+            }
+        }
+    }
+
     var cameraLensFacing by remember { mutableStateOf(CameraSelector.LENS_FACING_BACK) }
     var imageCapture: ImageCapture? by remember { mutableStateOf(null) }
     var isCapturing by remember { mutableStateOf(false) }
+    var isCameraActive by remember { mutableStateOf(false) }
+    var cameraError: String? by remember { mutableStateOf(null) }
     val isProcessing by viewModel.isProcessing.collectAsState()
     val telemetry by viewModel.telemetry.collectAsState()
 
@@ -177,7 +189,7 @@ fun VisionScreen(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Viewfinder Container with Plant Scene & Overlays
+        // Real viewfinder. Nothing is drawn here unless the camera is genuinely bound.
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -192,19 +204,19 @@ fun VisionScreen(
                         val previewView = PreviewView(ctx)
                         val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
                         cameraProviderFuture.addListener({
-                            val cameraProvider = cameraProviderFuture.get()
-                            val preview = Preview.Builder().build().also {
-                                it.setSurfaceProvider(previewView.surfaceProvider)
-                            }
-                            imageCapture = ImageCapture.Builder()
-                                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-                                .build()
-
-                            val cameraSelector = CameraSelector.Builder()
-                                .requireLensFacing(cameraLensFacing)
-                                .build()
-
                             try {
+                                val cameraProvider = cameraProviderFuture.get()
+                                val preview = Preview.Builder().build().also {
+                                    it.setSurfaceProvider(previewView.surfaceProvider)
+                                }
+                                imageCapture = ImageCapture.Builder()
+                                    .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                                    .build()
+
+                                val cameraSelector = CameraSelector.Builder()
+                                    .requireLensFacing(cameraLensFacing)
+                                    .build()
+
                                 cameraProvider.unbindAll()
                                 cameraProvider.bindToLifecycle(
                                     lifecycleOwner,
@@ -212,8 +224,13 @@ fun VisionScreen(
                                     preview,
                                     imageCapture
                                 )
+                                cameraError = null
+                                isCameraActive = true
                             } catch (e: Exception) {
-                                // Camera bind error fallback
+                                // Report the real failure instead of showing a dead viewfinder.
+                                isCameraActive = false
+                                imageCapture = null
+                                cameraError = e.localizedMessage ?: e.javaClass.simpleName
                             }
                         }, ContextCompat.getMainExecutor(ctx))
                         previewView
@@ -221,16 +238,52 @@ fun VisionScreen(
                     modifier = Modifier.fillMaxSize()
                 )
             } else {
-                // High-fidelity fallback plant sample image (as seen in Screen 5)
-                Image(
-                    painter = painterResource(id = R.drawable.plant_sample),
-                    contentDescription = "Live Plant Target",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(24.dp),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "● CAMERA NOT AVAILABLE",
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        color = MagentaAccent
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "ক্যামেরা পারমিশন ছাড়া Arohi কিছু দেখতে পায় না। পারমিশন দিলে সরাসরি ক্যামেরা চালু হবে।",
+                        fontSize = 12.sp,
+                        color = TextSecondary,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(CyanPrimary)
+                            .clickable { permissionLauncher.launch(Manifest.permission.CAMERA) }
+                            .padding(horizontal = 18.dp, vertical = 10.dp)
+                    ) {
+                        Text(
+                            text = "ক্যামেরা পারমিশন দিন",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF020205)
+                        )
+                    }
+                }
             }
 
-            // Top Floating "● LIVE" Badge
+            // Honest state badge: only says ACTIVE when CameraX actually bound the preview.
+            val (badgeColor, badgeText) = when {
+                cameraError != null -> Pair(MagentaAccent, "CAMERA ERROR")
+                hasCameraPermission && isCameraActive -> Pair(EmeraldSuccess, "CAMERA ACTIVE")
+                hasCameraPermission -> Pair(CyanPrimary, "STARTING…")
+                else -> Pair(TextMuted, "NOT AVAILABLE")
+            }
             Box(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
@@ -248,10 +301,10 @@ fun VisionScreen(
                         modifier = Modifier
                             .size(6.dp)
                             .clip(CircleShape)
-                            .background(EmeraldSuccess)
+                            .background(badgeColor)
                     )
                     Text(
-                        text = "LIVE",
+                        text = badgeText,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 1.sp,
@@ -260,97 +313,26 @@ fun VisionScreen(
                 }
             }
 
-            // Center Target Bounding Box: Monstera Deliciosa | 96%
-            Box(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .size(240.dp, 220.dp)
-                    .border(2.dp, CyanPrimary, RoundedCornerShape(14.dp))
-            ) {
-                // Target Label Tag
+            cameraError?.let { error ->
                 Box(
                     modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .clip(RoundedCornerShape(topStart = 12.dp, bottomEnd = 12.dp))
-                        .background(CyanPrimary)
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .padding(12.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Color(0xE61A0A12))
+                        .border(1.dp, MagentaAccent.copy(alpha = 0.4f), RoundedCornerShape(14.dp))
+                        .padding(12.dp)
                 ) {
                     Text(
-                        text = "Monstera Deliciosa  96%",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF020205)
+                        text = "ক্যামেরা চালু করা যায়নি: $error",
+                        fontSize = 11.sp,
+                        color = TextSecondary
                     )
                 }
             }
 
-            // Bottom Plant Care Information Card (Screen 5 Overlay)
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .padding(12.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Color(0xE60D1222))
-                    .border(1.dp, Color(0x338B5CF6), RoundedCornerShape(16.dp))
-                    .padding(12.dp)
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        text = "Monstera Deliciosa (Swiss Cheese Plant)",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.WaterDrop,
-                            contentDescription = null,
-                            tint = CyanPrimary,
-                            modifier = Modifier.size(13.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "Water: Every 1-2 weeks",
-                            fontSize = 11.sp,
-                            color = TextSecondary
-                        )
-                    }
-
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.WbSunny,
-                            contentDescription = null,
-                            tint = Color(0xFFFBBF24),
-                            modifier = Modifier.size(13.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "Light: Bright indirect sunlight",
-                            fontSize = 11.sp,
-                            color = TextSecondary
-                        )
-                    }
-
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.CheckCircle,
-                            contentDescription = null,
-                            tint = EmeraldSuccess,
-                            modifier = Modifier.size(13.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "Status: Healthy • No pests detected",
-                            fontSize = 11.sp,
-                            color = EmeraldSuccess
-                        )
-                    }
-                }
-            }
-
-            // Processing Loader
+            // Real analysis progress (shown only while a real request is in flight).
             if (isCapturing || isProcessing) {
                 Box(
                     modifier = Modifier
@@ -362,7 +344,7 @@ fun VisionScreen(
                         CircularProgressIndicator(color = CyanPrimary, strokeWidth = 3.dp)
                         Spacer(modifier = Modifier.height(14.dp))
                         Text(
-                            text = "Analyzing with Gemini Vision...",
+                            text = if (isCapturing) "ছবি নেওয়া হচ্ছে…" else "Gemini Vision analysing…",
                             color = Color.White,
                             fontSize = 13.sp,
                             fontFamily = FontFamily.Monospace,
@@ -481,6 +463,27 @@ fun VisionScreen(
                 )
             }
         }
+    }
+}
+
+/** Loads a picked image, downscales it and returns JPEG base64, or null when it cannot be read. */
+private fun uriToBase64(context: android.content.Context, uri: android.net.Uri): String? {
+    return try {
+        val bitmap = context.contentResolver.openInputStream(uri).use { input ->
+            BitmapFactory.decodeStream(input)
+        } ?: return null
+        val scale = (1024f / bitmap.width.coerceAtLeast(bitmap.height)).coerceAtMost(1f)
+        val scaled = Bitmap.createScaledBitmap(
+            bitmap,
+            (bitmap.width * scale).toInt().coerceAtLeast(1),
+            (bitmap.height * scale).toInt().coerceAtLeast(1),
+            true
+        )
+        val out = ByteArrayOutputStream()
+        scaled.compress(Bitmap.CompressFormat.JPEG, 80, out)
+        Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+    } catch (e: Exception) {
+        null
     }
 }
 

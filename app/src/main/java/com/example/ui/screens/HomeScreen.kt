@@ -67,6 +67,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.service.DiagnosticStatusLevel
+import com.example.device.batteryText
+import com.example.device.orUnavailable
+import com.example.device.ramUsedPercent
+import com.example.device.storageUsedPercent
 import com.example.ui.theme.CyanPrimary
 import com.example.ui.theme.EmeraldSuccess
 import com.example.ui.theme.MagentaAccent
@@ -429,29 +433,25 @@ fun HomeScreen(
             // Battery Status Mini Card
             HomeStatusMiniCard(
                 title = "Battery",
-                value = "${telemetry.batteryPercent}%",
+                value = telemetry.batteryText(),
                 icon = Icons.Default.BatteryChargingFull,
                 tint = EmeraldSuccess,
                 modifier = Modifier.weight(1f)
             )
 
             // Storage Status Mini Card
-            val totalStorage = telemetry.totalStorageGb.toInt().coerceAtLeast(1)
-            val storagePct = (((telemetry.totalStorageGb - telemetry.freeStorageGb) / totalStorage) * 100).toInt()
             HomeStatusMiniCard(
                 title = "Storage",
-                value = "$storagePct%",
+                value = telemetry.storageUsedPercent().orUnavailable(),
                 icon = Icons.Default.Storage,
                 tint = CyanPrimary,
                 modifier = Modifier.weight(1f)
             )
 
             // RAM Status Mini Card
-            val totalRam = telemetry.totalRamMb.coerceAtLeast(1)
-            val ramPct = (((telemetry.totalRamMb - telemetry.freeRamMb).toFloat() / totalRam) * 100).toInt()
             HomeStatusMiniCard(
                 title = "RAM",
-                value = "$ramPct%",
+                value = telemetry.ramUsedPercent().orUnavailable(),
                 icon = Icons.Default.Memory,
                 tint = VioletBright,
                 modifier = Modifier.weight(1f)
