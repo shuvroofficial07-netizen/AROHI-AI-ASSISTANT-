@@ -50,7 +50,32 @@ jobs:
           fi
 
       - name: Run unit tests (pure-Kotlin core logic)
-        run: gradle :app:testDebugUnitTest --stacktrace --no-daemon
+        shell: bash
+        run: |
+          set +e
+          gradle :app:testDebugUnitTest --stacktrace --no-daemon --console=plain 2>&1 | tee build-test.log
+          echo "=== EXIT MARKER ===" >> build-test.log
+          exit $(echo $?)
+
+      - name: Compile debug sources (to capture main compile errors)
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          gradle :app:compileDebugKotlin --stacktrace --no-daemon --console=plain 2>&1 | tee build-compile.log
+          exit 0
+
+      - name: Upload gradle console logs (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arohi-gradle-logs
+          path: |
+            build-test.log
+            build-compile.log
+            app/build/reports/
+            app/build/test-results/
+          if-no-files-found: ignore
 
       - name: Build debug APK
         run: gradle :app:assembleDebug --stacktrace --no-daemon
