@@ -85,7 +85,7 @@ object CrashReporter {
      * Runs [block] and reports failure instead of taking the whole process down.
      * Used only for genuinely optional subsystems (never to hide a real crash path).
      */
-    inline fun <T> safe(label: String, block: () -> T): T? = try {
+    fun <T> safe(label: String, block: () -> T): T? = try {
         block()
     } catch (t: Throwable) {
         Log.e(TAG, "Subsystem '$label' failed: ${t.message}", t)
