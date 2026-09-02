@@ -53,8 +53,16 @@ class ArohiAccessibilityService : AccessibilityService() {
         serviceInfo = info
     }
 
+    /** Real package name of the app currently in the foreground (null when unknown). */
+    @Volatile
+    var currentForegroundPackage: String? = null
+        private set
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // Track current focused package if needed
+        if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            val pkg = event.packageName?.toString()
+            if (!pkg.isNullOrBlank()) currentForegroundPackage = pkg
+        }
     }
 
     override fun onInterrupt() {

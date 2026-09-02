@@ -35,11 +35,21 @@ class LocalCommandEngine(
         val query = input.trim()
         val lower = query.lowercase(Locale.ROOT)
 
-        // 1. Silence / Stop / Interrupt command
-        if (isSilenceCommand(lower)) {
+        // 1. Silence / reactivate — these really flip the persisted silence mode.
+        if (isSpeakAgainCommand(lower)) {
+            settingsRepository.setSilenceMode(false)
             return LocalExecutionResult(
                 isHandled = true,
-                responseText = "ঠিক আছে, আমি চুপ করলাম।",
+                responseText = "আবার কথা বলছি বস ❤️ বলুন, কী করব?",
+                emotion = ArohiEmotion.HAPPY,
+                toolName = "silence_off"
+            )
+        }
+        if (isSilenceCommand(lower)) {
+            settingsRepository.setSilenceMode(true)
+            return LocalExecutionResult(
+                isHandled = true,
+                responseText = "আচ্ছা বস, চুপ থাকছি। 'আবার কথা বলো' বললেই ফিরে আসব।",
                 emotion = ArohiEmotion.CALM,
                 toolName = "silence"
             )
@@ -124,28 +134,28 @@ class LocalCommandEngine(
         val accessService = ArohiAccessibilityService.instance
         if (accessService != null) {
             if (lower.contains("পিছনে যাও") || lower.contains("ব্যাক করো") || lower.contains("go back") || lower.contains("back")) {
-                accessService.goBack()
+                val ok = accessService.goBack()
                 return LocalExecutionResult(
                     isHandled = true,
-                    responseText = "পিছনে যাওয়া হয়েছে।",
+                    responseText = if (ok) "পিছনে যাওয়া হয়েছে।" else "Back অ্যাকশনটি Android গ্রহণ করেনি।",
                     emotion = ArohiEmotion.CALM,
                     toolName = "navigate_global"
                 )
             }
             if (lower.contains("হোমে যাও") || lower.contains("হোম স্ক্রিন") || lower.contains("go home")) {
-                accessService.goHome()
+                val ok = accessService.goHome()
                 return LocalExecutionResult(
                     isHandled = true,
-                    responseText = "হোম স্ক্রিনে যাওয়া হয়েছে।",
+                    responseText = if (ok) "হোম স্ক্রিনে যাওয়া হয়েছে।" else "Home অ্যাকশনটি Android গ্রহণ করেনি।",
                     emotion = ArohiEmotion.CALM,
                     toolName = "navigate_global"
                 )
             }
             if (lower.contains("নোটিফিকেশন বার") || lower.contains("নোটিফিকেশন নামাও") || lower.contains("open notifications")) {
-                accessService.openNotifications()
+                val ok = accessService.openNotifications()
                 return LocalExecutionResult(
                     isHandled = true,
-                    responseText = "নোটিফিকেশন প্যানেল খোলা হয়েছে।",
+                    responseText = if (ok) "নোটিফিকেশন প্যানেল খোলা হয়েছে।" else "নোটিফিকেশন প্যানেল খোলা যায়নি।",
                     emotion = ArohiEmotion.CALM,
                     toolName = "navigate_global"
                 )
@@ -166,6 +176,30 @@ class LocalCommandEngine(
             val target = extractCallTarget(query)
             if (target.isNotBlank()) {
                 val contacts = contactsManager.searchContacts(target)
+                val distinctNames = contacts.map { it.name }.distinct()
+                if (distinctNames.size > 1) {
+                    // Never guess between multiple people — ask.
+                    return LocalExecutionResult(
+                        isHandled = true,
+                        responseText = "'$target' নামে ${distinctNames.size} জন আছেন: " +
+                            distinctNames.take(5).joinToString(", ") +
+                            "। কাকে কল করব বস?",
+                        emotion = ArohiEmotion.CURIOUS,
+                        toolName = "find_contact"
+                    )
+                }
+                if (contacts.isEmpty() && !target.any { it.isDigit() }) {
+                    return LocalExecutionResult(
+                        isHandled = true,
+                        responseText = if (contactsManager.hasContactsPermission()) {
+                            "'$target' নামে কোনো কন্টাক্ট খুঁজে পাইনি বস।"
+                        } else {
+                            "কন্টাক্ট পারমিশন নেই, তাই নাম দিয়ে কল করতে পারছি না। Settings → Permission Center থেকে দিন।"
+                        },
+                        emotion = ArohiEmotion.CONFUSED,
+                        toolName = "find_contact"
+                    )
+                }
                 val targetNumber = if (contacts.isNotEmpty()) contacts.first().phoneNumber else target
                 val targetDisplayName = if (contacts.isNotEmpty()) contacts.first().name else target
 
@@ -187,7 +221,14 @@ class LocalCommandEngine(
             val foundApp = appDiscoveryManager.findApp(appQuery)
             if (foundApp != null) {
                 val launched = appDiscoveryManager.launchApp(foundApp.packageName)
-                val verify = verificationEngine.verifyAppLaunch(launched, foundApp.label)
+                // Real verification: if Accessibility is connected we can read the foreground package.
+                val foregroundVerified: Boolean? = if (launched && ArohiAccessibilityService.instance != null) {
+                    kotlinx.coroutines.delay(900)
+                    ArohiAccessibilityService.instance?.currentForegroundPackage == foundApp.packageName
+                } else {
+                    null
+                }
+                val verify = verificationEngine.verifyAppLaunch(launched, foundApp.label, foregroundVerified)
                 return LocalExecutionResult(
                     isHandled = true,
                     responseText = verify.summary,
@@ -203,7 +244,7 @@ class LocalCommandEngine(
             val summary = executeRoutineActions(routine.actionsJson)
             return LocalExecutionResult(
                 isHandled = true,
-                responseText = "'${routine.name}' রুটিন সম্পন্ন হয়েছে:\n$summary",
+                responseText = "'${routine.name}' রুটিন চালানো হয়েছে। ফলাফল:\n$summary",
                 emotion = ArohiEmotion.EXECUTING,
                 toolName = "run_routine"
             )
@@ -229,8 +270,11 @@ class LocalCommandEngine(
                     val (percent, isCharging, _) = deviceStateManager.getBatteryInfo()
                     val (freeRam, totalRam) = deviceStateManager.getRamInfo()
                     val (freeStorage, _) = deviceStateManager.getStorageInfo()
+                    val batteryText = if (percent < 0) "Unavailable" else "$percent%"
+                    val ramText = if (freeRam < 0 || totalRam <= 0) "Unavailable" else "${freeRam}/${totalRam}MB"
+                    val storageText = if (freeStorage < 0) "Unavailable" else "$freeStorage GB"
                     results.add(
-                        "• ব্যাটারি $percent%${if (isCharging) " (চার্জিং)" else ""}, ফ্রি র‍্যাম ${freeRam}/${totalRam}MB, ফ্রি স্টোরেজ $freeStorage GB"
+                        "• ব্যাটারি $batteryText${if (isCharging) " (চার্জিং)" else ""}, ফ্রি র‍্যাম $ramText, ফ্রি স্টোরেজ $storageText"
                     )
                 }
                 "getnotifications" -> {
@@ -262,7 +306,7 @@ class LocalCommandEngine(
                     val isNotif = ArohiNotificationListenerService.isConnected
                     val (percent, isCharging, _) = deviceStateManager.getBatteryInfo()
                     results.add(
-                        "• ডায়াগনস্টিকস: অ্যাকসেসিবিলিটি ${if (isAccess) "সক্রিয়" else "নিষ্ক্রিয়"}, নোটিফিকেশন লিসেনার ${if (isNotif) "সংযুক্ত" else "বিচ্ছিন্ন"}, ব্যাটারি $percent%"
+                        "• ডায়াগনস্টিকস: অ্যাকসেসিবিলিটি ${if (isAccess) "সক্রিয়" else "নিষ্ক্রিয়"}, নোটিফিকেশন লিসেনার ${if (isNotif) "সংযুক্ত" else "বিচ্ছিন্ন"}, ব্যাটারি ${if (percent < 0) "Unavailable" else "$percent%"}"
                     )
                 }
                 else -> results.add("• অজানা অ্যাকশন বাদ দেওয়া হয়েছে: $action")
@@ -272,7 +316,19 @@ class LocalCommandEngine(
     }
 
     private fun isSilenceCommand(text: String): Boolean {
-        val triggers = listOf("চুপ", "চুপ করো", "থামো", "বন্ধ করো", "stop", "quiet", "shut up", "be quiet", "ব্যাস")
+        // Deliberately narrow: "টর্চ বন্ধ করো" / "volume off" must NOT be treated as a silence command.
+        val triggers = listOf(
+            "চুপ করো", "চুপ কর", "চুপ থাকো", "থামো", "কথা বন্ধ", "silent mode on",
+            "stop talking", "be quiet", "shut up", "keep quiet"
+        )
+        return triggers.any { text.contains(it) }
+    }
+
+    private fun isSpeakAgainCommand(text: String): Boolean {
+        val triggers = listOf(
+            "আবার কথা বলো", "আবার কথা বল", "কথা বলা শুরু করো", "চুপ থেকো না",
+            "speak again", "start talking", "unmute", "silent mode off"
+        )
         return triggers.any { text.contains(it) }
     }
 
