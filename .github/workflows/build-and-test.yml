@@ -58,7 +58,16 @@ jobs:
           exit $(echo $?)
 
       - name: Build debug APK
-        run: gradle :app:assembleDebug --stacktrace --no-daemon --console=plain
+        shell: bash
+        run: |
+          set +e
+          gradle :app:assembleDebug --stacktrace --no-daemon --console=plain 2>&1 | tee build-assemble.log
+          code=${PIPESTATUS[0]}
+          echo "## Build result (exit $code)" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          grep -nE "e: |error:|FAILED|What went wrong|> Task .*FAILED|Execution failed|Caused by|Manifest merger|AAPT|Duplicate|unresolved|expecting|attribute" build-assemble.log | tail -100 >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          exit $code
 
       - name: Verify APK
         shell: bash
