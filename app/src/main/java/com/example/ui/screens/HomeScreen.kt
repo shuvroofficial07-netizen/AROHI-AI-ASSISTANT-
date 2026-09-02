@@ -67,6 +67,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.service.DiagnosticStatusLevel
+import com.example.service.BackgroundServiceState
 import com.example.device.batteryText
 import com.example.device.orUnavailable
 import com.example.device.ramUsedPercent
@@ -204,7 +205,11 @@ fun HomeScreen(
         Spacer(modifier = Modifier.height(10.dp))
 
         val report by viewModel.diagnosticReport.collectAsState()
-        val isBgActive = report.items.find { it.id == "background_service" }?.status == DiagnosticStatusLevel.READY
+        // Real service state (live), not a cached diagnostics snapshot.
+        val bgState by viewModel.backgroundServiceState.collectAsState()
+        val bgError by viewModel.backgroundServiceError.collectAsState()
+        val bgFailureText = bgError?.takeIf { bgState == BackgroundServiceState.FAILED }
+        val isBgActive = bgState == BackgroundServiceState.RUNNING
 
         // 2. Status & Background Assistant Real Switch Bar
         Row(
@@ -272,8 +277,12 @@ fun HomeScreen(
                     }
                     .padding(horizontal = 10.dp, vertical = 5.dp)
             ) {
-                val bgStateColor = if (isBgActive) EmeraldSuccess else Color(0xFFEF4444)
-                val bgStateLabel = if (isBgActive) "BG: RUNNING" else "BG: STOPPED"
+                val (bgStateColor, bgStateLabel) = when (bgState) {
+                    BackgroundServiceState.RUNNING -> Pair(EmeraldSuccess, "BG: RUNNING")
+                    BackgroundServiceState.STARTING -> Pair(CyanPrimary, "BG: STARTING")
+                    BackgroundServiceState.FAILED -> Pair(Color(0xFFEF4444), "BG: FAILED")
+                    BackgroundServiceState.STOPPED -> Pair(Color(0xFFEF4444), "BG: STOPPED")
+                }
                 Box(
                     modifier = Modifier
                         .size(7.dp)
@@ -285,9 +294,20 @@ fun HomeScreen(
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = FontFamily.Monospace,
-                    color = if (isBgActive) EmeraldSuccess else Color(0xFFEF4444)
+                    color = bgStateColor
                 )
             }
+        }
+
+        // Honest failure reason when Android refuses to run the background service.
+        bgFailureText?.let { reason ->
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = "Background service could not start: $reason",
+                fontSize = 10.sp,
+                color = Color(0xFFEF4444),
+                modifier = Modifier.padding(horizontal = 4.dp)
+            )
         }
 
         Spacer(modifier = Modifier.height(10.dp))

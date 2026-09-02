@@ -66,7 +66,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.remote.GeminiClient
 import com.example.data.remote.GeminiConnectionState
+import com.example.data.repository.NotificationAnnouncePolicy
 import com.example.ui.components.GlassCard
+import com.example.ui.components.PermissionCenterCard
 import com.example.ui.theme.CyanPrimary
 import com.example.ui.theme.EmeraldSuccess
 import com.example.ui.theme.MagentaAccent
@@ -320,6 +322,65 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.width(6.dp))
                     Text("API Key মুছে ফেলুন", fontSize = 11.sp, fontFamily = FontFamily.Monospace)
                 }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // Permission Center — real permission states, explained before they are requested
+        PermissionCenterCard()
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // Notification voice announcement policy (real, applied by the listener service)
+        val announcePolicy by viewModel.announcePolicyFlow.collectAsState()
+        GlassCard(modifier = Modifier.fillMaxWidth()) {
+            Column {
+                Text(
+                    text = "NOTIFICATION VOICE ANNOUNCEMENT",
+                    fontSize = 10.sp,
+                    letterSpacing = 1.8.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = CyanPrimary
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                NotificationAnnouncePolicy.entries.forEach { policy ->
+                    val selected = policy == announcePolicy
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedButton(
+                            onClick = { viewModel.setNotificationAnnouncePolicy(policy) },
+                            shape = RoundedCornerShape(10.dp),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                if (selected) CyanPrimary else Color(0x22FFFFFF)
+                            ),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = if (selected) CyanPrimary else TextSecondary
+                            )
+                        ) {
+                            Text(
+                                text = when (policy) {
+                                    NotificationAnnouncePolicy.OFF -> "OFF"
+                                    NotificationAnnouncePolicy.IMPORTANT_ONLY -> "IMPORTANT ONLY"
+                                    NotificationAnnouncePolicy.SELECTED_APPS -> "SELECTED APPS"
+                                    NotificationAnnouncePolicy.ALL -> "ALL ALLOWED"
+                                },
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+                }
+                Text(
+                    text = "Privacy mode চালু থাকলে মেসেজের কনটেন্ট পড়া হয় না — শুধু জানানো হয় কে পাঠিয়েছে। DND, silent mode বা কল চলাকালীন Arohi চুপ থাকে।",
+                    fontSize = 10.sp,
+                    color = TextMuted
+                )
             }
         }
 
