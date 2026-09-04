@@ -94,3 +94,9 @@ data class GeminiError(
     @Json(name = "message") val message: String? = null,
     @Json(name = "status") val status: String? = null
 )
+
+/** Gemini error responses are wrapped in an outer `{"error": {...}}` envelope. */
+@JsonClass(generateAdapter = true)
+data class GeminiErrorEnvelope(
+    @Json(name = "error") val error: GeminiError? = null
+)

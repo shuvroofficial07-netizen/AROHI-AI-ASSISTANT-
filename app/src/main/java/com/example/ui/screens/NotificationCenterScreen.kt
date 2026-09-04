@@ -38,7 +38,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -76,7 +78,13 @@ fun NotificationCenterScreen(
     val context = LocalContext.current
 
     // Real data only — no mock seeds. Empty state guides the user to grant access.
-    val displayNotifications = notifications
+    // The filter button really toggles between all / unread-only views.
+    var showUnreadOnly by remember { mutableStateOf(false) }
+    val displayNotifications = if (showUnreadOnly) {
+        notifications.filter { !it.isRead }
+    } else {
+        notifications
+    }
     val unreadNotifications = remember(notifications) { notifications.filter { !it.isRead } }
 
     // Real AI summary derived from actually captured notifications
@@ -141,7 +149,7 @@ fun NotificationCenterScreen(
             }
 
             IconButton(
-                onClick = { /* Filter or options */ },
+                onClick = { showUnreadOnly = !showUnreadOnly },
                 modifier = Modifier
                     .size(36.dp)
                     .clip(CircleShape)
@@ -150,8 +158,8 @@ fun NotificationCenterScreen(
             ) {
                 Icon(
                     imageVector = Icons.Default.FilterList,
-                    contentDescription = "Filter",
-                    tint = TextMuted,
+                    contentDescription = if (showUnreadOnly) "Showing unread only" else "Showing all",
+                    tint = if (showUnreadOnly) CyanPrimary else TextMuted,
                     modifier = Modifier.size(18.dp)
                 )
             }
@@ -249,7 +257,11 @@ fun NotificationCenterScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "Recent (${displayNotifications.size})",
+                text = if (showUnreadOnly) {
+                    "Unread (${displayNotifications.size})"
+                } else {
+                    "Recent (${displayNotifications.size})"
+                },
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White

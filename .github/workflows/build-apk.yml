@@ -1,0 +1,213 @@
+name: Build and Publish AROHI APK
+
+on:
+  push:
+    branches:
+      - main
+      - 'arena/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apk-build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+          cache-read-only: false
+
+      - name: Create debug keystore (if missing)
+        run: |
+          if [ ! -f "./debug.keystore" ]; then
+            keytool -genkey -v \
+              -keystore ./debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+            echo "Debug keystore created successfully."
+          else
+            echo "debug.keystore already exists."
+          fi
+
+      - name: Create minimal .env if missing
+        run: |
+          # NOTE: the value must never be empty — the secrets plugin generates
+          # `String GEMINI_API_KEY = ;` (invalid Java) for empty values. The
+          # placeholder from .env.example compiles and is filtered at runtime.
+          if [ ! -f ".env" ]; then
+            cp .env.example .env || true
+          fi
+          sed 's/=.*/=***/' .env
+
+      - name: Run unit tests (real logic verification)
+        run: |
+          set -o pipefail
+          gradle :app:testDebugUnitTest --stacktrace --no-daemon --console=plain 2>&1 | tee ci-test.log
+
+      - name: Build debug APK
+        run: |
+          set -o pipefail
+          ./gradlew :app:assembleDebug --stacktrace --no-daemon 2>&1 | tee ci-assemble-debug.log
+
+      - name: Build signed release APK
+        env:
+          KEYSTORE_PATH: ${{ github.workspace }}/arohi-release-upload.jks
+          STORE_PASSWORD: ${{ secrets.UPLOAD_STORE_PASSWORD || 'arohi-release-ci' }}
+          KEY_PASSWORD: ${{ secrets.UPLOAD_KEY_PASSWORD || 'arohi-release-ci' }}
+        run: |
+          if [ ! -f "$KEYSTORE_PATH" ]; then
+            keytool -genkey -v \
+              -keystore "$KEYSTORE_PATH" \
+              -storepass "$STORE_PASSWORD" \
+              -alias upload \
+              -keypass "$KEY_PASSWORD" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Arohi AI Assistant,O=Shu Vro,C=BD"
+          fi
+          set -o pipefail
+          ./gradlew :app:assembleRelease --stacktrace --no-daemon 2>&1 | tee ci-assemble-release.log
+
+      # Because raw Actions logs are not always downloadable, failures push a
+      # diagnostics bundle back to the branch so the exact Gradle error can be
+      # inspected. (Committed with [skip ci] to avoid trigger loops.)
+      - name: Publish failure diagnostics to branch
+        if: failure()
+        run: |
+          git config user.name "arohi-ci-bot"
+          git config user.email "ci@arohi.invalid"
+          git pull --rebase origin ${{ github.head_ref || github.ref_name }} || true
+          mkdir -p ci-diagnostics
+          {
+            echo "Run: ${{ github.run_id }} attempt ${{ github.run_attempt }}"
+            echo "Commit: ${{ github.sha }}"
+            echo "Date: $(date -u)"
+            for LOG in ci-test.log ci-assemble-debug.log ci-assemble-release.log; do
+              if [ -f "$LOG" ]; then
+                echo ""
+                echo "================ $LOG (tail 400) ================"
+                tail -400 "$LOG"
+              fi
+            done
+          } > ci-diagnostics/last-failure.txt
+          git add -f ci-diagnostics
+          git commit -m "ci: diagnostics for run ${{ github.run_id }} [skip ci]"
+          git push
+
+      - name: Clear diagnostics on success
+        if: success()
+        run: |
+          if [ -d ci-diagnostics ] && [ -n "$(ls -A ci-diagnostics 2>/dev/null)" ]; then
+            git config user.name "arohi-ci-bot"
+            git config user.email "ci@arohi.invalid"
+            git rm -r --cached ci-diagnostics >/dev/null 2>&1 || true
+            rm -rf ci-diagnostics
+            git commit -m "ci: build green — clear diagnostics [skip ci]" || true
+            git push || true
+          fi
+
+      - name: Verify APKs exist
+        run: |
+          DEBUG_APK="app/build/outputs/apk/debug/app-debug.apk"
+          RELEASE_APK="app/build/outputs/apk/release/app-release.apk"
+          for APK in "$DEBUG_APK" "$RELEASE_APK"; do
+            if [ ! -f "$APK" ]; then
+              echo "Error: Expected APK not found at $APK"
+              find app/build/outputs/apk -type f -name "*.apk" || echo "No APKs found."
+              exit 1
+            fi
+            if [ ! -s "$APK" ]; then
+              echo "Error: APK file exists but is empty: $APK"
+              exit 1
+            fi
+            echo "Verified $APK:"; ls -la "$APK"
+          done
+
+      - name: Upload APK artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: AROHI-AI-Assistant-APKs
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+
+      - name: Prepare release assets
+        id: prepare_asset
+        run: |
+          TEMP_DIR=$(mktemp -d)
+          cp app/build/outputs/apk/debug/app-debug.apk "$TEMP_DIR/AROHI-AI-Assistant-debug-build-${{ github.run_number }}.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$TEMP_DIR/AROHI-AI-Assistant-release-build-${{ github.run_number }}.apk"
+          echo "asset_dir=$TEMP_DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Publish APKs to GitHub Releases
+        id: publish_release
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          RELEASE_TAG="apk-build-${{ github.run_number }}-${{ github.run_attempt }}"
+          RELEASE_TITLE="AROHI AI Assistant v14.0.0 — Build #${{ github.run_number }}"
+          TARGET_COMMIT="${{ github.sha }}"
+
+          cat << 'EOF' > release_notes.txt
+          AROHI AI Assistant by Shù Vrô — v14.0.0 (Final Production Release)
+
+          Built and unit-tested by GitHub Actions from commit ${{ github.sha }}.
+
+          Contents:
+          • AROHI-AI-Assistant-debug-build-*.apk  — debug-signed APK
+          • AROHI-AI-Assistant-release-build-*.apk — release-signed APK (CI keystore)
+
+          Install: enable "Install unknown apps" for your browser/file manager, then open the APK.
+          One-time setup: open AROHI → SETTINGS → paste your free Gemini API key
+          (https://aistudio.google.com/apikey) → সেভ করুন. The key is verified with a real API request.
+          EOF
+
+          gh release create "$RELEASE_TAG" \
+            "${{ steps.prepare_asset.outputs.asset_dir }}/AROHI-AI-Assistant-debug-build-${{ github.run_number }}.apk" \
+            "${{ steps.prepare_asset.outputs.asset_dir }}/AROHI-AI-Assistant-release-build-${{ github.run_number }}.apk" \
+            --title "$RELEASE_TITLE" \
+            --notes-file release_notes.txt \
+            --target "$TARGET_COMMIT" \
+            --latest
+
+      - name: Report APK download result
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          RELEASE_TAG="apk-build-${{ github.run_number }}-${{ github.run_attempt }}"
+          if [ "${{ steps.publish_release.outcome }}" == "success" ]; then
+            RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/$RELEASE_TAG"
+            echo "Release publishing succeeded!"
+            echo "### ✅ APK Build, Tests & Release Successful" >> $GITHUB_STEP_SUMMARY
+            echo "[Download AROHI APK]($RELEASE_URL)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Release publishing failed, but the build artifact remains available."
+            echo "### ⚠️ Release Publishing Failed" >> $GITHUB_STEP_SUMMARY
+            echo "Download from the **Artifacts** section (AROHI-AI-Assistant-APKs)." >> $GITHUB_STEP_SUMMARY
+          fi

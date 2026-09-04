@@ -35,11 +35,12 @@ class LocalCommandEngine(
         val query = input.trim()
         val lower = query.lowercase(Locale.ROOT)
 
-        // 1. Silence / Stop / Interrupt command
+        // 1. Silence / Stop / Interrupt command (strict match only — must not
+        // hijack device commands like "টর্চ বন্ধ করো" or "stop the music")
         if (isSilenceCommand(lower)) {
             return LocalExecutionResult(
                 isHandled = true,
-                responseText = "ঠিক আছে, আমি চুপ করলাম।",
+                responseText = "আচ্ছা বস, চুপ থাকছি। যখন ডাকবেন তখন আসব।",
                 emotion = ArohiEmotion.CALM,
                 toolName = "silence"
             )
@@ -53,6 +54,15 @@ class LocalCommandEngine(
                 emotion = ArohiEmotion.HAPPY,
                 toolName = "identity"
             )
+        }
+
+        // 2.5 Real long-term memory: save ("মনে রেখো ...") and recall
+        // ("কী মনে আছে?") — backed by the actual Room database.
+        if (CommandMatchers.isMemorySaveQuery(lower)) {
+            return handleMemorySave(query)
+        }
+        if (CommandMatchers.isMemoryRecallQuery(lower)) {
+            return handleMemoryRecall()
         }
 
         // 3. Battery status
@@ -272,8 +282,49 @@ class LocalCommandEngine(
     }
 
     private fun isSilenceCommand(text: String): Boolean {
-        val triggers = listOf("চুপ", "চুপ করো", "থামো", "বন্ধ করো", "stop", "quiet", "shut up", "be quiet", "ব্যাস")
-        return triggers.any { text.contains(it) }
+        return CommandMatchers.isSilenceCommand(text)
+    }
+
+    /**
+     * Really saves a fact to the Room memories table and verifies the insert
+     * by the returned row id. Returns a real success/failure message.
+     */
+    private suspend fun handleMemorySave(query: String): LocalExecutionResult {
+        val fact = CommandMatchers.extractMemoryFact(query)
+        if (fact.isBlank()) {
+            return LocalExecutionResult(
+                isHandled = true,
+                responseText = "কী বিষয়টি মনে রাখব বস, বলুন না! যেমন: \"মনে রেখো আমার পছন্দের রং নীল।\"",
+                emotion = ArohiEmotion.CONFUSED,
+                toolName = "save_user_memory"
+            )
+        }
+        val key = fact.split(Regex("\\s+")).take(4).joinToString(" ")
+        val savedId = memoryRepository.saveMemory("IMPORTANT_FACTS", key, fact)
+        val verify = verificationEngine.verifyMemory(savedId, key)
+        return LocalExecutionResult(
+            isHandled = true,
+            responseText = verify.summary + " (মনে রেখেছি: $fact)",
+            emotion = if (savedId > 0) ArohiEmotion.HAPPY else ArohiEmotion.ERROR,
+            toolName = "save_user_memory"
+        )
+    }
+
+    /** Really reads the memories table and reports what is actually stored. */
+    private suspend fun handleMemoryRecall(): LocalExecutionResult {
+        val all = memoryRepository.search("")
+        val response = if (all.isEmpty()) {
+            "এখনো আমার মেমোরিতে কিছু সংরক্ষিত নেই বস। \"মনে রেখো ...\" বলে যা খুশি মনে রাখতে পারি।"
+        } else {
+            val items = all.take(15).joinToString("\n") { "• ${it.key}: ${it.value}" }
+            "আমার মেমোরিতে এখন ${all.size}টি তথ্য আছে:\n$items"
+        }
+        return LocalExecutionResult(
+            isHandled = true,
+            responseText = response,
+            emotion = if (all.isEmpty()) ArohiEmotion.CALM else ArohiEmotion.FOCUSED,
+            toolName = "search_memory"
+        )
     }
 
     private fun isIdentityQuery(text: String): Boolean {

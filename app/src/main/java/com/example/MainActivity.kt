@@ -227,7 +227,9 @@ fun ArohiMainApp(
     ) { innerPadding ->
         NavHost(
             navController = navController,
-            startDestination = Screen.Home.route,
+            // The branded Arohi startup screen is the real start destination:
+            // Splash → initialization → Main screen, every cold start.
+            startDestination = Screen.Splash.route,
             modifier = Modifier.padding(innerPadding)
         ) {
             composable(Screen.Splash.route) {

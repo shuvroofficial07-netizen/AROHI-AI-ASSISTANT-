@@ -1,20 +1,21 @@
 package com.example.service
 
 import android.app.Notification
-import android.content.ComponentName
 import android.content.Context
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
-import android.text.TextUtils
 import com.example.ArohiApplication
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 class ArohiNotificationListenerService : NotificationListenerService() {
 
     companion object {
+        @Volatile
         var isConnected: Boolean = false
             private set
 
@@ -28,6 +29,10 @@ class ArohiNotificationListenerService : NotificationListenerService() {
         }
     }
 
+    // Service-scoped structured concurrency — all inserts are cancelled
+    // reliably when the system destroys or disconnects the listener.
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     override fun onListenerConnected() {
         super.onListenerConnected()
         isConnected = true
@@ -35,6 +40,7 @@ class ArohiNotificationListenerService : NotificationListenerService() {
 
     override fun onListenerDisconnected() {
         super.onListenerDisconnected()
+        // Honest state: access revoked or service disconnected — no stale "connected".
         isConnected = false
     }
 
@@ -45,7 +51,7 @@ class ArohiNotificationListenerService : NotificationListenerService() {
         val pkg = sbn.packageName ?: return
         if (pkg == packageName) return // Ignore self
 
-        val extras = sbn.notification.extras ?: return
+        val extras = sbn.notification?.extras ?: return
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
         val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
         val subText = extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString() ?: ""
@@ -66,21 +72,35 @@ class ArohiNotificationListenerService : NotificationListenerService() {
         val notificationRepo = app?.notificationRepository
 
         if (notificationRepo != null) {
-            CoroutineScope(Dispatchers.IO).launch {
-                notificationRepo.insertNotification(
-                    packageName = pkg,
-                    appName = appName,
-                    title = title,
-                    text = text,
-                    subText = subText,
-                    priority = priority,
-                    key = key
-                )
+            serviceScope.launch {
+                try {
+                    notificationRepo.insertNotification(
+                        packageName = pkg,
+                        appName = appName,
+                        title = title,
+                        text = text,
+                        subText = subText,
+                        priority = priority,
+                        key = key
+                    )
+                } catch (e: Exception) {
+                    // A failed insert must never crash the listener service.
+                    android.util.Log.w(
+                        "ArohiNotifListener",
+                        "Failed to persist notification from $pkg: ${e.javaClass.simpleName}"
+                    )
+                }
             }
         }
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification?) {
         super.onNotificationRemoved(sbn)
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        isConnected = false
+        serviceScope.cancel()
     }
 }
