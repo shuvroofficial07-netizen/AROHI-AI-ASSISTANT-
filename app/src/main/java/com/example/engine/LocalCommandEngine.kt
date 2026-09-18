@@ -49,7 +49,7 @@ class LocalCommandEngine(
         if (isIdentityQuery(lower)) {
             return LocalExecutionResult(
                 isHandled = true,
-                responseText = "আমি আরোহী (Arohi), Shù Vrô-র তৈরি আপনার ব্যক্তিগত AI অপারেটিং লেয়ার। আমি আপনার ফোনের সর্বোচ্চ নিয়ন্ত্রণ ও বুদ্ধিমত্তা নিয়ে প্রস্তুত!",
+                responseText = "আমি আরোহী (Arohi), Shù Vrô-র তৈরি আপনার ব্যক্তিগত AI অপারেটিং লেয়ার। আমি আপনার ফোনের সর্বোচ্চ নিয়ন্ত্রণ ও বুদ্ধিমত্তা নিয়ে প্রস্তুত!",
                 emotion = ArohiEmotion.HAPPY,
                 toolName = "identity"
             )
@@ -58,7 +58,7 @@ class LocalCommandEngine(
         // 3. Battery status
         if (lower.contains("ব্যাটারি") || lower.contains("চার্জ") || lower.contains("battery")) {
             val (percent, isCharging, chargeType) = deviceStateManager.getBatteryInfo()
-            val chargeStatus = if (isCharging) " এবং এটি $chargeType দিয়ে চার্জ হচ্ছে" else " (চার্জে নেই)"
+            val chargeStatus = if (isCharging) " এবং এটি $chargeType দিয়ে চার্জ হচ্ছে" else " (চার্জে নেই)"
             val speech = "আপনার ফোনের ব্যাটারি বর্তমানে $percent%$chargeStatus।"
             return LocalExecutionResult(
                 isHandled = true,
@@ -72,7 +72,7 @@ class LocalCommandEngine(
         if (lower.contains("র‍্যাম") || lower.contains("স্টোরেজ") || lower.contains("মেমোরি") || lower.contains("ram") || lower.contains("storage")) {
             val (freeRam, totalRam) = deviceStateManager.getRamInfo()
             val (freeStorage, totalStorage) = deviceStateManager.getStorageInfo()
-            val speech = "বর্তমানে $totalRam MB র‍্যামের মধ্যে $freeRam MB খালি আছে, এবং $totalStorage GB স্টোরেজের মধ্যে $freeStorage GB ফাঁকা রয়েছে।"
+            val speech = "বর্তমানে $totalRam MB র‍্যামের মধ্যে $freeRam MB খালি আছে, এবং $totalStorage GB স্টোরেজের মধ্যে $freeStorage GB ফাঁকা রয়েছে।"
             return LocalExecutionResult(
                 isHandled = true,
                 responseText = speech,
@@ -100,7 +100,7 @@ class LocalCommandEngine(
                 lower.contains("মিউট") || lower.contains("mute") || lower.contains("শূন্য") || lower.contains("0") -> 0
                 lower.contains("ফুল") || lower.contains("সর্বোচ্চ") || lower.contains("100") || lower.contains("max") -> 100
                 lower.contains("অর্ধেক") || lower.contains("৫০") || lower.contains("50") -> 50
-                lower.contains("বাড়াও") || lower.contains("up") -> {
+                lower.contains("বাড়াও") || lower.contains("up") -> {
                     val (current, _) = deviceStateManager.getVolumeInfo()
                     (current + 25).coerceAtMost(100)
                 }
@@ -150,7 +150,7 @@ class LocalCommandEngine(
                     toolName = "navigate_global"
                 )
             }
-            if (lower.contains("স্ক্রিন পড়ো") || lower.contains("স্ক্রিনে কি আছে") || lower.contains("read screen")) {
+            if (lower.contains("স্ক্রিন পড়ো") || lower.contains("স্ক্রিনে কি আছে") || lower.contains("read screen")) {
                 val content = accessService.inspectCurrentScreen()
                 return LocalExecutionResult(
                     isHandled = true,
@@ -162,7 +162,7 @@ class LocalCommandEngine(
         }
 
         // 8. Call Contact / Dial
-        if (lower.contains("কল দাও") || lower.contains("কল করো") || lower.startsWith("call ") || lower.contains("ডায়াল করো") || lower.contains("ডায়াল করো")) {
+        if (lower.contains("কল দাও") || lower.contains("কল করো") || lower.startsWith("call ") || lower.contains("ডায়াল করো") || lower.contains("ডায়াল করো")) {
             val target = extractCallTarget(query)
             if (target.isNotBlank()) {
                 val contacts = contactsManager.searchContacts(target)
@@ -277,7 +277,7 @@ class LocalCommandEngine(
     }
 
     private fun isIdentityQuery(text: String): Boolean {
-        val triggers = listOf("তুমি কে", "তোমার নাম কি", "তোমার পরিচয়", "who are you", "who made you", "কার তৈরি", "who created you")
+        val triggers = listOf("তুমি কে", "তোমার নাম কি", "তোমার পরিচয়", "who are you", "who made you", "কার তৈরি", "who created you")
         return triggers.any { text.contains(it) }
     }
 
@@ -294,7 +294,7 @@ class LocalCommandEngine(
 
     private fun extractCallTarget(text: String): String {
         return text
-            .replace(Regex("(?i)(কল দাও|কল করো|ডায়াল করো|ডায়াল করো|call|dial|to)"), "")
+            .replace(Regex("(?i)(কল দাও|কল করো|ডায়াল করো|ডায়াল করো|call|dial|to)"), "")
             .replace(Regex("(?i)(কে|-কে)"), "")
             .trim()
     }

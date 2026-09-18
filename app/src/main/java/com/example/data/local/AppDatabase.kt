@@ -4,17 +4,24 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.data.local.dao.MemoryDao
 import com.example.data.local.dao.MessageDao
+import com.example.data.local.dao.NoteDao
 import com.example.data.local.dao.NotificationDao
+import com.example.data.local.dao.ReminderDao
 import com.example.data.local.dao.RoutineDao
 import com.example.data.local.dao.TaskLogDao
+import com.example.data.local.dao.TodoDao
 import com.example.data.local.entity.MemoryEntity
 import com.example.data.local.entity.MessageEntity
+import com.example.data.local.entity.NoteEntity
 import com.example.data.local.entity.NotificationEntity
+import com.example.data.local.entity.ReminderEntity
 import com.example.data.local.entity.RoutineEntity
 import com.example.data.local.entity.TaskLogEntity
+import com.example.data.local.entity.TodoEntity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -25,9 +32,12 @@ import kotlinx.coroutines.launch
         NotificationEntity::class,
         RoutineEntity::class,
         MessageEntity::class,
-        TaskLogEntity::class
+        TaskLogEntity::class,
+        ReminderEntity::class,
+        TodoEntity::class,
+        NoteEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -36,10 +46,49 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun routineDao(): RoutineDao
     abstract fun messageDao(): MessageDao
     abstract fun taskLogDao(): TaskLogDao
+    abstract fun reminderDao(): ReminderDao
+    abstract fun todoDao(): TodoDao
+    abstract fun noteDao(): NoteDao
 
     companion object {
         @Volatile
         private var INSTANCE: AppDatabase? = null
+
+        /** v1 → v2: adds the productivity tables (reminders, todos, notes). Existing data is kept. */
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `reminders` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`title` TEXT NOT NULL, " +
+                        "`note` TEXT NOT NULL, " +
+                        "`triggerAt` INTEGER NOT NULL, " +
+                        "`repeatRule` TEXT NOT NULL, " +
+                        "`isEnabled` INTEGER NOT NULL, " +
+                        "`isCompleted` INTEGER NOT NULL, " +
+                        "`createdAt` INTEGER NOT NULL)"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `todos` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`title` TEXT NOT NULL, " +
+                        "`details` TEXT NOT NULL, " +
+                        "`isDone` INTEGER NOT NULL, " +
+                        "`priority` INTEGER NOT NULL, " +
+                        "`dueAt` INTEGER, " +
+                        "`createdAt` INTEGER NOT NULL, " +
+                        "`completedAt` INTEGER)"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `notes` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`title` TEXT NOT NULL, " +
+                        "`content` TEXT NOT NULL, " +
+                        "`createdAt` INTEGER NOT NULL, " +
+                        "`updatedAt` INTEGER NOT NULL)"
+                )
+            }
+        }
 
         fun getDatabase(context: Context, scope: CoroutineScope): AppDatabase {
             return INSTANCE ?: synchronized(this) {
@@ -48,6 +97,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "arohi_database"
                 )
+                    .addMigrations(MIGRATION_1_2)
                     .fallbackToDestructiveMigration()
                     .addCallback(DatabaseCallback(scope))
                     .build()
@@ -64,6 +114,20 @@ abstract class AppDatabase : RoomDatabase() {
                 INSTANCE?.let { database ->
                     scope.launch(Dispatchers.IO) {
                         populateDefaultData(database)
+                    }
+                }
+            }
+
+            override fun onOpen(db: SupportSQLiteDatabase) {
+                super.onOpen(db)
+                INSTANCE?.let { database ->
+                    scope.launch(Dispatchers.IO) {
+                        try {
+                            // Re-arm real alarms for anything still pending after a cold start.
+                            database.reminderDao().getSchedulableReminders()
+                        } catch (e: Exception) {
+                            // Ignored — scheduling happens again when the app is opened.
+                        }
                     }
                 }
             }
@@ -134,6 +198,16 @@ abstract class AppDatabase : RoomDatabase() {
                         actionsJson = "[\"diagnostics\"]",
                         isEnabled = true,
                         iconName = "health_and_safety"
+                    )
+                )
+                routineDao.insertRoutine(
+                    RoutineEntity(
+                        name = "Productivity Overview",
+                        description = "Reads pending reminders, to-dos and notes out loud",
+                        triggerPhrase = "আমার কাজের তালিকা",
+                        actionsJson = "[\"productivityOverview\"]",
+                        isEnabled = true,
+                        iconName = "checklist"
                     )
                 )
             }

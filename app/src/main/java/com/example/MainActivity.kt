@@ -1,5 +1,6 @@
 package com.example
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -24,23 +25,30 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.PrivacyTip
 import androidx.compose.material.icons.filled.RemoveRedEye
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material.icons.outlined.Chat
 import androidx.compose.material.icons.outlined.Checklist
+import androidx.compose.material.icons.outlined.Cloud
+import androidx.compose.material.icons.outlined.Face
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.PhoneAndroid
+import androidx.compose.material.icons.outlined.PrivacyTip
 import androidx.compose.material.icons.outlined.RemoveRedEye
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -61,15 +69,20 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.ui.screens.AssistantChatScreen
+import com.example.ui.screens.AvatarStudioScreen
 import com.example.ui.screens.DeviceDashboardScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.MemoryRoutinesScreen
 import com.example.ui.screens.NotificationCenterScreen
+import com.example.ui.screens.PrivacyCenterScreen
+import com.example.ui.screens.ProductivityScreen
 import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.SmartTasksScreen
 import com.example.ui.screens.SplashScreen
 import com.example.ui.screens.SystemHealthScreen
 import com.example.ui.screens.VisionScreen
+import com.example.ui.screens.WeatherScreen
+import com.example.ui.theme.AccentPalettes
 import com.example.ui.theme.ArohiBlack
 import com.example.ui.theme.ArohiDarkSurface
 import com.example.ui.theme.CyanPrimary
@@ -93,6 +106,10 @@ sealed class Screen(
     object Tasks : Screen("tasks", "Tasks", Icons.Filled.Checklist, Icons.Outlined.Checklist)
     object Vision : Screen("vision", "Vision", Icons.Filled.RemoveRedEye, Icons.Outlined.RemoveRedEye)
     object Diagnostics : Screen("diagnostics", "Health", Icons.Filled.PhoneAndroid, Icons.Outlined.PhoneAndroid)
+    object Productivity : Screen("productivity", "কাজ", Icons.Filled.Checklist, Icons.Outlined.Checklist)
+    object Weather : Screen("weather", "আবহাওয়া", Icons.Filled.Cloud, Icons.Outlined.Cloud)
+    object Avatar : Screen("avatar", "অ্যাভাটার", Icons.Filled.Face, Icons.Outlined.Face)
+    object Privacy : Screen("privacy", "প্রাইভেসি", Icons.Filled.PrivacyTip, Icons.Outlined.PrivacyTip)
 }
 
 class MainActivity : ComponentActivity() {
@@ -101,14 +118,38 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        handleSpeakableNotification(intent)
         setContent {
-            MyApplicationTheme {
+            val accentId by viewModel.themeAccentFlow.collectAsState()
+            val highContrast by viewModel.highContrastFlow.collectAsState()
+            val fontScale by viewModel.fontScaleFlow.collectAsState()
+
+            MyApplicationTheme(
+                accent = AccentPalettes.byId(accentId),
+                highContrast = highContrast,
+                fontScale = fontScale
+            ) {
                 val navController = rememberNavController()
                 ArohiMainApp(
                     viewModel = viewModel,
                     navController = navController
                 )
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleSpeakableNotification(intent)
+    }
+
+    /** A reminder / check-in notification can ask AROHI to read itself out loud. */
+    private fun handleSpeakableNotification(intent: Intent?) {
+        val speak = intent?.getBooleanExtra("extra_speak_on_open", false) ?: false
+        val text = intent?.getStringExtra("extra_speak_text")
+        if (speak && !text.isNullOrBlank()) {
+            viewModel.speakExternalText(text)
         }
     }
 }
@@ -250,7 +291,11 @@ fun ArohiMainApp(
                     onNavigateToRoutines = { navController.navigate(Screen.Memories.route) },
                     onNavigateToMemory = { navController.navigate(Screen.Memories.route) },
                     onNavigateToSettings = { navController.navigate(Screen.Settings.route) },
-                    onNavigateToDiagnostics = { navController.navigate(Screen.Diagnostics.route) }
+                    onNavigateToDiagnostics = { navController.navigate(Screen.Diagnostics.route) },
+                    onNavigateToProductivity = { navController.navigate(Screen.Productivity.route) },
+                    onNavigateToWeather = { navController.navigate(Screen.Weather.route) },
+                    onNavigateToAvatarStudio = { navController.navigate(Screen.Avatar.route) },
+                    onNavigateToPrivacy = { navController.navigate(Screen.Privacy.route) }
                 )
             }
             composable(Screen.Tasks.route) {
@@ -289,6 +334,21 @@ fun ArohiMainApp(
                     viewModel = viewModel,
                     onNavigateToVision = { navController.navigate(Screen.Vision.route) }
                 )
+            }
+            composable(Screen.Productivity.route) {
+                ProductivityScreen(
+                    viewModel = viewModel,
+                    onBack = { navController.popBackStack() }
+                )
+            }
+            composable(Screen.Weather.route) {
+                WeatherScreen(viewModel = viewModel)
+            }
+            composable(Screen.Avatar.route) {
+                AvatarStudioScreen(viewModel = viewModel)
+            }
+            composable(Screen.Privacy.route) {
+                PrivacyCenterScreen(viewModel = viewModel)
             }
             composable(Screen.Settings.route) {
                 SettingsScreen(viewModel = viewModel)

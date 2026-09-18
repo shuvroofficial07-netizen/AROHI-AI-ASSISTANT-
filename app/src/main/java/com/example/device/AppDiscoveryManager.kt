@@ -87,7 +87,7 @@ class AppDiscoveryManager(private val context: Context) {
                 aliases.addAll(listOf("fb", "ফেসবুক", "ফেস বুক", "face book"))
             }
             lower.contains("whatsapp") || pkg.contains("whatsapp") -> {
-                aliases.addAll(listOf("হোয়াটসঅ্যাপ", "হোয়াটসঅ্যাপ", "whats app", "ওয়াটসঅ্যাপ"))
+                aliases.addAll(listOf("হোয়াটসঅ্যাপ", "হোয়াটসঅ্যাপ", "whats app", "ওয়াটসঅ্যাপ"))
             }
             lower.contains("youtube") || pkg.contains("youtube") -> {
                 aliases.addAll(listOf("ইউটিউব", "ইউ ট্যুব", "you tube", "yt"))
@@ -117,7 +117,7 @@ class AppDiscoveryManager(private val context: Context) {
                 aliases.addAll(listOf("ম্যাপ", "গুগল ম্যাপ", "map"))
             }
             lower.contains("contacts") || lower.contains("phone") || lower.contains("dialer") -> {
-                aliases.addAll(listOf("ফোন", "কন্টাক্ট", "ডায়ালার", "কল"))
+                aliases.addAll(listOf("ফোন", "কন্টাক্ট", "ডায়ালার", "কল"))
             }
             lower.contains("messages") || lower.contains("messaging") -> {
                 aliases.addAll(listOf("মেসেজ", "বার্তা", "sms", "মেসেঞ্জার"))

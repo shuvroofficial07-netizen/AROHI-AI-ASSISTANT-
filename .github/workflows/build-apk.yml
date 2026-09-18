@@ -1,0 +1,150 @@
+name: Build and Publish AROHI APK
+
+on:
+  push:
+    branches:
+      - main
+      - 'arena/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apk-build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Verify Java environment
+        run: |
+          echo "JAVA_HOME=$JAVA_HOME"
+          java -version
+          JAVA_VERSION=$(java -version 2>&1 | awk -F '"' '/version/ {print $2}' | awk -F '.' '{if ($1 == "1") print $2; else print $1}')
+          if [ -z "$JAVA_VERSION" ]; then
+            echo "Error: Could not detect Java version."
+            exit 1
+          fi
+          if [ "$JAVA_VERSION" -lt 17 ]; then
+            echo "Error: Java version is lower than 17 (Detected: $JAVA_VERSION)."
+            exit 1
+          fi
+          echo "Java major version $JAVA_VERSION verified."
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+          cache-read-only: false
+
+      - name: Create debug keystore (if missing)
+        run: |
+          if [ ! -f "./debug.keystore" ]; then
+            keytool -genkey -v \
+              -keystore ./debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+            echo "Debug keystore created successfully."
+          else
+            echo "debug.keystore already exists."
+          fi
+
+      - name: Build debug APK
+        run: ./gradlew :app:assembleDebug --stacktrace --no-daemon
+
+      - name: Verify APK exists
+        run: |
+          APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
+          if [ ! -f "$APK_PATH" ]; then
+            echo "Error: Expected APK not found at $APK_PATH."
+            echo "Searching inside app/build/outputs/apk:"
+            find app/build/outputs/apk -type f -name "*.apk" || echo "No APKs found."
+            exit 1
+          fi
+          if [ ! -s "$APK_PATH" ]; then
+            echo "Error: APK file exists but is empty."
+            exit 1
+          fi
+          echo "Verified APK at $APK_PATH"
+          ls -la "$APK_PATH"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AROHI-AI-Assistant-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      - name: Prepare APK release asset
+        id: prepare_asset
+        run: |
+          TEMP_DIR=$(mktemp -d)
+          RELEASE_FILENAME="AROHI-AI-Assistant-debug-build-${{ github.run_number }}.apk"
+          RELEASE_PATH="${TEMP_DIR}/${RELEASE_FILENAME}"
+          cp app/build/outputs/apk/debug/app-debug.apk "$RELEASE_PATH"
+          echo "asset_path=$RELEASE_PATH" >> "$GITHUB_OUTPUT"
+          echo "asset_name=$RELEASE_FILENAME" >> "$GITHUB_OUTPUT"
+
+      - name: Publish APK to GitHub Releases
+        id: publish_release
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ASSET_PATH="${{ steps.prepare_asset.outputs.asset_path }}"
+          if [ ! -s "$ASSET_PATH" ]; then
+            echo "Error: Release asset is missing or empty."
+            exit 1
+          fi
+
+          RELEASE_TAG="debug-apk-build-${{ github.run_number }}-${{ github.run_attempt }}"
+          RELEASE_TITLE="AROHI APK Build #${{ github.run_number }}"
+          TARGET_COMMIT="${{ github.sha }}"
+
+          cat << 'EOF' > release_notes.txt
+          AROHI AI Assistant by Shù Vrô — automatically generated debug APK.
+          Built by GitHub Actions from commit ${{ github.sha }}.
+          Install: enable "Install unknown apps" for your browser/file manager, then open the APK.
+          After install, open Settings inside AROHI and paste your Gemini API key (https://aistudio.google.com/apikey) to unlock full cloud intelligence.
+          The APK is signed with a debug keystore — for testing only.
+          EOF
+
+          gh release create "$RELEASE_TAG" "$ASSET_PATH" \
+            --title "$RELEASE_TITLE" \
+            --notes-file release_notes.txt \
+            --target "$TARGET_COMMIT" \
+            --latest
+
+      - name: Report APK download result
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          RELEASE_TAG="debug-apk-build-${{ github.run_number }}-${{ github.run_attempt }}"
+          if [ "${{ steps.publish_release.outcome }}" == "success" ]; then
+            RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/$RELEASE_TAG"
+            echo "Release publishing succeeded!"
+            echo "### ✅ APK Build & Release Successful" >> $GITHUB_STEP_SUMMARY
+            echo "[Download AROHI APK]($RELEASE_URL)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Release publishing failed, but the build artifact remains available."
+            echo "### ⚠️ Release Publishing Failed" >> $GITHUB_STEP_SUMMARY
+            echo "Download from the **Artifacts** section (AROHI-AI-Assistant-debug-apk)." >> $GITHUB_STEP_SUMMARY
+          fi

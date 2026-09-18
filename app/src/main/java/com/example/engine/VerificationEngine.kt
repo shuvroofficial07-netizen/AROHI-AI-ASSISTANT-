@@ -17,7 +17,7 @@ class VerificationEngine {
         } else {
             ExecutionVerification(
                 isSuccess = false,
-                summary = "$appLabel অ্যাপটি চালু করা সম্ভব হয়নি। অ্যাপটি আপনার ফোনে ইনস্টল আছে কিনা যাচাই করুন।"
+                summary = "$appLabel অ্যাপটি চালু করা সম্ভব হয়নি। অ্যাপটি আপনার ফোনে ইনস্টল আছে কিনা যাচাই করুন।"
             )
         }
     }
@@ -32,13 +32,13 @@ class VerificationEngine {
             } else {
                 ExecutionVerification(
                     isSuccess = true,
-                    summary = "$target-এর জন্য ডায়ালার ওপেন করা হয়েছে।"
+                    summary = "$target-এর জন্য ডায়ালার ওপেন করা হয়েছে।"
                 )
             }
         } else {
             ExecutionVerification(
                 isSuccess = false,
-                summary = "$target-কে কল করার ডায়ালার ওপেন করা যায়নি।"
+                summary = "$target-কে কল করার ডায়ালার ওপেন করা যায়নি।"
             )
         }
     }
@@ -53,7 +53,7 @@ class VerificationEngine {
         } else {
             ExecutionVerification(
                 isSuccess = false,
-                summary = "ফ্ল্যাশলাইট পরিবর্তন করা যায়নি। ক্যামেরা হার্ডওয়্যার পারমিশন চেক করুন।"
+                summary = "ফ্ল্যাশলাইট পরিবর্তন করা যায়নি। ক্যামেরা হার্ডওয়্যার পারমিশন চেক করুন।"
             )
         }
     }
@@ -62,12 +62,12 @@ class VerificationEngine {
         return if (success) {
             ExecutionVerification(
                 isSuccess = true,
-                summary = "মিডিয়া ভলিউম $percent%-এ সেট করা হয়েছে।"
+                summary = "মিডিয়া ভলিউম $percent%-এ সেট করা হয়েছে।"
             )
         } else {
             ExecutionVerification(
                 isSuccess = false,
-                summary = "ভলিউম সেট করা সম্ভব হয়নি।"
+                summary = "ভলিউম সেট করা সম্ভব হয়নি।"
             )
         }
     }
@@ -81,7 +81,7 @@ class VerificationEngine {
         } else {
             ExecutionVerification(
                 isSuccess = false,
-                summary = "মেমোরিতে সেভ করতে সমস্যা হয়েছে।"
+                summary = "মেমোরিতে সেভ করতে সমস্যা হয়েছে।"
             )
         }
     }

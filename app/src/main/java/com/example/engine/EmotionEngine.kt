@@ -45,7 +45,7 @@ class EmotionEngine {
             lower.contains("দুঃখিত") || lower.contains("error") || lower.contains("ব্যর্থ") -> ArohiEmotion.ERROR
             lower.contains("হা হা") || lower.contains("মজা") || lower.contains("awesome") || lower.contains("দারুণ") -> ArohiEmotion.HAPPY
             lower.contains("চিন্তা করবেন না") || lower.contains("শান্ত") -> ArohiEmotion.CALM
-            lower.contains("কাজটি সফল") || lower.contains("করে দিয়েছি") || lower.contains("হয়ে গেছে") -> ArohiEmotion.HAPPY
+            lower.contains("কাজটি সফল") || lower.contains("করে দিয়েছি") || lower.contains("হয়ে গেছে") -> ArohiEmotion.HAPPY
             lower.contains("বুঝতে পারছি না") || lower.contains("আবার বলুন") -> ArohiEmotion.CONFUSED
             lower.contains("সতর্কতা") || lower.contains("সাবধান") -> ArohiEmotion.CONCERNED
             else -> ArohiEmotion.SPEAKING

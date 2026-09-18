@@ -90,6 +90,7 @@ fun AssistantChatScreen(
     val isProcessing by viewModel.isProcessing.collectAsState()
     val speechState by viewModel.speechState.collectAsState()
     val isSpeaking by viewModel.isSpeaking.collectAsState()
+    val liveReply by viewModel.liveReply.collectAsState()
 
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -249,7 +250,7 @@ fun AssistantChatScreen(
                                 "ব্যাটারি ও মেমোরি স্ট্যাটাস বলো",
                                 "টর্চ লাইট অন করো",
                                 "ইউটিউব অ্যাপ খোলো",
-                                "সিস্টেম ডায়াগনস্টিকস চালাও"
+                                "সিস্টেম ডায়াগনস্টিকস চালাও"
                             )
                             for (prompt in starterPrompts) {
                                 Box(
@@ -275,11 +276,23 @@ fun AssistantChatScreen(
                 }
             }
 
-            items(messages, key = { it.id }) { message ->
+            val visibleMessages = if (liveReply != null && messages.lastOrNull()?.role == "AROHI") {
+                messages.dropLast(1)
+            } else {
+                messages
+            }
+
+            items(visibleMessages, key = { it.id }) { message ->
                 MessageBubble(
                     message = message,
                     onPlayTts = { viewModel.ttsManager.speak(message.content) }
                 )
+            }
+
+            if (liveReply != null) {
+                item {
+                    LiveReplyBubble(text = liveReply?.text ?: "")
+                }
             }
 
             if (isProcessing) {
@@ -530,3 +543,51 @@ fun MessageBubble(
     }
 }
 
+
+@Composable
+private fun LiveReplyBubble(text: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.Start
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.88f)
+                .clip(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 4.dp, bottomEnd = 18.dp))
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            Color(0x14FFFFFF),
+                            Color(0x0AFFFFFF),
+                            ArohiDarkSurface.copy(alpha = 0.8f)
+                        )
+                    )
+                )
+                .border(
+                    1.dp,
+                    CyanPrimary.copy(alpha = 0.35f),
+                    RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 4.dp, bottomEnd = 18.dp)
+                )
+                .padding(horizontal = 14.dp, vertical = 12.dp)
+        ) {
+            Column {
+                Text(
+                    text = "AROHI · লিখছে",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.5.sp,
+                    color = CyanPrimary
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = text.ifBlank { "…" },
+                    fontSize = 14.sp,
+                    color = Color.White,
+                    lineHeight = 20.sp
+                )
+            }
+        }
+    }
+}

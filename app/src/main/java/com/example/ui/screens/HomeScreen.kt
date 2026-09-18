@@ -35,12 +35,15 @@ import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.PrivacyTip
 import androidx.compose.material.icons.filled.RemoveRedEye
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Storage
@@ -89,11 +92,17 @@ fun HomeScreen(
     onNavigateToMemory: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
     onNavigateToDiagnostics: () -> Unit = {},
+    onNavigateToProductivity: () -> Unit = {},
+    onNavigateToWeather: () -> Unit = {},
+    onNavigateToAvatarStudio: () -> Unit = {},
+    onNavigateToPrivacy: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val speechState by viewModel.speechState.collectAsState()
     val isSpeaking by viewModel.isSpeaking.collectAsState()
     val telemetry by viewModel.telemetry.collectAsState()
+    val proactiveSuggestion by viewModel.proactiveSuggestion.collectAsState()
+    val weather by viewModel.weather.collectAsState()
     val isListening = speechState == SpeechState.LISTENING
 
     // Android 13+ requires POST_NOTIFICATIONS for the persistent foreground service notification
@@ -368,12 +377,22 @@ fun HomeScreen(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = "আমি প্রস্তুত, বস! বলুন, কী করতে পারি আপনার জন্য?",
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
-                color = Color.White
-            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = "আমি প্রস্তুত! বলো, আজ কী করতে হবে?",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = Color.White
+                )
+                if (weather != null) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "${weather?.city}: ${weather?.temperatureC?.toInt()}°C · ${weather?.condition}",
+                        fontSize = 11.sp,
+                        color = CyanPrimary
+                    )
+                }
+            }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -416,6 +435,73 @@ fun HomeScreen(
                     onClick = onNavigateToNotifications,
                     modifier = Modifier.weight(1f)
                 )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // 5b. Second quick actions row — productivity, weather, avatar studio, privacy
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            ActionGridCard(
+                title = "কাজ",
+                icon = Icons.Default.Checklist,
+                glowColor = CyanPrimary,
+                onClick = onNavigateToProductivity,
+                modifier = Modifier.weight(1f)
+            )
+            ActionGridCard(
+                title = "আবহাওয়া",
+                icon = Icons.Default.Cloud,
+                glowColor = EmeraldSuccess,
+                onClick = onNavigateToWeather,
+                modifier = Modifier.weight(1f)
+            )
+            ActionGridCard(
+                title = "অ্যাভাটার",
+                icon = Icons.Default.Face,
+                glowColor = VioletBright,
+                onClick = onNavigateToAvatarStudio,
+                modifier = Modifier.weight(1f)
+            )
+            ActionGridCard(
+                title = "প্রাইভেসি",
+                icon = Icons.Default.PrivacyTip,
+                glowColor = MagentaAccent,
+                onClick = onNavigateToPrivacy,
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        if (proactiveSuggestion != null) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color(0x1410B981))
+                    .border(1.dp, EmeraldSuccess.copy(alpha = 0.35f), RoundedCornerShape(14.dp))
+                    .clickable { onNavigateToWeather() }
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
+            ) {
+                Column {
+                    Text(
+                        text = "আরোহীর সাজেশন",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.5.sp,
+                        color = EmeraldSuccess
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = proactiveSuggestion ?: "",
+                        fontSize = 12.sp,
+                        color = Color.White,
+                        lineHeight = 17.sp
+                    )
+                }
             }
         }
 

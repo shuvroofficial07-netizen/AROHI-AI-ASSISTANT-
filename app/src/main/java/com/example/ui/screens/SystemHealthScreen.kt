@@ -279,17 +279,17 @@ fun OverallHealthHeroCard(
         DiagnosticStatusLevel.READY -> Triple(
             EmeraldSuccess,
             "ALL SYSTEMS READY",
-            "সবগুলো সাবসিস্টেম ও AI ক্লাউড কানেকশন সক্রিয় রয়েছে।"
+            "সবগুলো সাবসিস্টেম ও AI ক্লাউড কানেকশন সক্রিয় রয়েছে।"
         )
         DiagnosticStatusLevel.LIMITED -> Triple(
             Color(0xFFF59E0B),
             "SYSTEM STATUS: LIMITED",
-            "কিছু সার্ভিস বা পারমিশন সীমিত রয়েছে (লোকাল ইঞ্জিন সক্রিয়)।"
+            "কিছু সার্ভিস বা পারমিশন সীমিত রয়েছে (লোকাল ইঞ্জিন সক্রিয়)।"
         )
         DiagnosticStatusLevel.ERROR -> Triple(
             MagentaAccent,
             "SYSTEM STATUS: ERROR",
-            "এক বা একাধিক গুরুত্বপূর্ণ সাবসিস্টেমে ত্রুটি পরিলক্ষিত হয়েছে।"
+            "এক বা একাধিক গুরুত্বপূর্ণ সাবসিস্টেমে ত্রুটি পরিলক্ষিত হয়েছে।"
         )
     }
 
