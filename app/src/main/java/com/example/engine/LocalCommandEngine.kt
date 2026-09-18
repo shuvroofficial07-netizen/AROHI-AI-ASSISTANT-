@@ -1,9 +1,12 @@
 package com.example.engine
 
 import com.example.data.repository.MemoryRepository
+import com.example.data.repository.NoteRepository
 import com.example.data.repository.NotificationRepository
+import com.example.data.repository.ReminderRepository
 import com.example.data.repository.RoutineRepository
 import com.example.data.repository.SettingsRepository
+import com.example.data.repository.TodoRepository
 import com.example.device.AppDiscoveryManager
 import com.example.device.ContactsManager
 import com.example.device.DeviceStateManager
@@ -28,7 +31,10 @@ class LocalCommandEngine(
     private val notificationRepository: NotificationRepository,
     private val routineRepository: RoutineRepository,
     private val settingsRepository: SettingsRepository,
-    private val verificationEngine: VerificationEngine
+    private val verificationEngine: VerificationEngine,
+    private val reminderRepository: ReminderRepository,
+    private val todoRepository: TodoRepository,
+    private val noteRepository: NoteRepository
 ) {
 
     suspend fun tryExecuteLocally(input: String): LocalExecutionResult {
@@ -49,7 +55,7 @@ class LocalCommandEngine(
         if (isIdentityQuery(lower)) {
             return LocalExecutionResult(
                 isHandled = true,
-                responseText = "আমি আরোহী (Arohi), Shù Vrô-র তৈরি আপনার ব্যক্তিগত AI অপারেটিং লেয়ার। আমি আপনার ফোনের সর্বোচ্চ নিয়ন্ত্রণ ও বুদ্ধিমত্তা নিয়ে প্রস্তুত!",
+                responseText = "আমি আরোহী — Shù Vrô-র তৈরি তোমার ব্যক্তিগত AI সঙ্গী। হ্যাঁ, আমি একটা AI; তবে তোমার ফোনের রিমাইন্ডার, টু-ডু, নোট, হিসাব আর কমান্ড আমি সামলে দিতে পারি।",
                 emotion = ArohiEmotion.HAPPY,
                 toolName = "identity"
             )
@@ -264,6 +270,31 @@ class LocalCommandEngine(
                     results.add(
                         "• ডায়াগনস্টিকস: অ্যাকসেসিবিলিটি ${if (isAccess) "সক্রিয়" else "নিষ্ক্রিয়"}, নোটিফিকেশন লিসেনার ${if (isNotif) "সংযুক্ত" else "বিচ্ছিন্ন"}, ব্যাটারি $percent%"
                     )
+                }
+                "productivityoverview" -> {
+                    val now = System.currentTimeMillis()
+                    val reminders = reminderRepository.getActiveReminders()
+                        .filter { it.triggerAt >= now - 12L * 60L * 60L * 1000L }
+                        .take(3)
+                    val todos = todoRepository.getPendingTodos().take(3)
+                    val notes = noteRepository.getNotes().take(2)
+                    if (reminders.isEmpty() && todos.isEmpty() && notes.isEmpty()) {
+                        results.add("• এখন কোনো pending রিমাইন্ডার, টু-ডু বা নোট নেই — তালিকা পরিষ্কার")
+                    } else {
+                        if (reminders.isNotEmpty()) {
+                            results.add(
+                                "• রিমাইন্ডার: " + reminders.joinToString("; ") {
+                                    "${it.title} — " + com.example.device.ReminderScheduler.formatBengaliDateTime(it.triggerAt)
+                                }
+                            )
+                        }
+                        if (todos.isNotEmpty()) {
+                            results.add("• টু-ডু: " + todos.joinToString("; ") { it.title })
+                        }
+                        if (notes.isNotEmpty()) {
+                            results.add("• নোট: " + notes.joinToString("; ") { it.title })
+                        }
+                    }
                 }
                 else -> results.add("• অজানা অ্যাকশন বাদ দেওয়া হয়েছে: $action")
             }

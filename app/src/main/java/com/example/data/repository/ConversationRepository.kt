@@ -2,13 +2,20 @@ package com.example.data.repository
 
 import com.example.data.local.dao.MessageDao
 import com.example.data.local.entity.MessageEntity
+import com.example.privacy.LocalVault
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 
-class ConversationRepository(private val messageDao: MessageDao) {
-    val allMessages: Flow<List<MessageEntity>> = messageDao.getAllMessages()
+class ConversationRepository(
+    private val messageDao: MessageDao,
+    private val vault: LocalVault
+) {
+    /** Decrypted for the UI — rows on disk may be encrypted when the user enabled it. */
+    val allMessages: Flow<List<MessageEntity>> =
+        messageDao.getAllMessages().map { messages -> messages.map { vault.decryptMessage(it) } }
 
     suspend fun getRecentMessages(limit: Int = 20): List<MessageEntity> {
-        return messageDao.getRecentMessages(limit)
+        return messageDao.getRecentMessages(limit).map { vault.decryptMessage(it) }
     }
 
     suspend fun addMessage(
@@ -19,16 +26,15 @@ class ConversationRepository(private val messageDao: MessageDao) {
         toolCallJson: String? = null,
         toolResultJson: String? = null
     ): Long {
-        return messageDao.insertMessage(
-            MessageEntity(
-                role = role,
-                content = content,
-                emotion = emotion,
-                isVoice = isVoice,
-                toolCallJson = toolCallJson,
-                toolResultJson = toolResultJson
-            )
+        val message = MessageEntity(
+            role = role,
+            content = content,
+            emotion = emotion,
+            isVoice = isVoice,
+            toolCallJson = toolCallJson,
+            toolResultJson = toolResultJson
         )
+        return messageDao.insertMessage(vault.encryptMessage(message))
     }
 
     suspend fun clearHistory() {

@@ -1,6 +1,6 @@
 {
   "name": "Arohi AI Assistant",
-  "description": "Arohi AI Assistant by Shù Vrô — Version 13.97.7 Autonomous Android AI Operating Layer",
+  "description": "Arohi AI Assistant by Shù Vrô — Version 14.0.0: Bengali-first AI companion with voice, emotion-tagged avatar, reminders, to-dos, notes, weather, converters and a real privacy center",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

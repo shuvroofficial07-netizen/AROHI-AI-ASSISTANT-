@@ -27,6 +27,7 @@ import com.example.engine.PersonaEngine
 import com.example.engine.ProactiveSuggestionEngine
 import com.example.engine.ProductivityEngine
 import com.example.engine.VerificationEngine
+import com.example.privacy.LocalVault
 import com.example.service.ArohiBackgroundService
 import com.example.service.DiagnosticService
 import kotlinx.coroutines.CoroutineScope
@@ -39,15 +40,19 @@ class ArohiApplication : Application() {
 
     val database by lazy { AppDatabase.getDatabase(this, applicationScope) }
 
-    val memoryRepository by lazy { MemoryRepository(database.memoryDao()) }
+    val settingsRepository by lazy { SettingsRepository(this) }
+
+    /** At-rest encryption for the user's own content (chat + memories) when the toggle is on. */
+    val localVault by lazy { LocalVault(settingsRepository) }
+
+    val memoryRepository by lazy { MemoryRepository(database.memoryDao(), localVault) }
     val notificationRepository by lazy { NotificationRepository(database.notificationDao()) }
     val routineRepository by lazy { RoutineRepository(database.routineDao()) }
-    val conversationRepository by lazy { ConversationRepository(database.messageDao()) }
+    val conversationRepository by lazy { ConversationRepository(database.messageDao(), localVault) }
     val taskLogRepository by lazy { TaskLogRepository(database.taskLogDao()) }
     val reminderRepository by lazy { ReminderRepository(database.reminderDao(), reminderScheduler) }
     val todoRepository by lazy { TodoRepository(database.todoDao()) }
     val noteRepository by lazy { NoteRepository(database.noteDao()) }
-    val settingsRepository by lazy { SettingsRepository(this) }
 
     val deviceStateManager by lazy { DeviceStateManager(this) }
     val appDiscoveryManager by lazy { AppDiscoveryManager(this) }
@@ -76,7 +81,10 @@ class ArohiApplication : Application() {
             notificationRepository = notificationRepository,
             routineRepository = routineRepository,
             settingsRepository = settingsRepository,
-            verificationEngine = verificationEngine
+            verificationEngine = verificationEngine,
+            reminderRepository = reminderRepository,
+            todoRepository = todoRepository,
+            noteRepository = noteRepository
         )
     }
 

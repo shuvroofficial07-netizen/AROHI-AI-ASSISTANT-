@@ -120,7 +120,7 @@ fun PrivacyCenterScreen(
                 )
                 ToggleLine(
                     title = "লোকাল স্টোরেজ এনক্রিপশন",
-                    subtitle = "Android Keystore (AES-256/GCM) দিয়ে সংবেদনশীল ডেটা সুরক্ষিত",
+                    subtitle = "Android Keystore (AES-256/GCM) দিয়ে চ্যাট ও মেমোরি ডিস্কে এনক্রিপ্টেড থাকে",
                     checked = encryption,
                     onCheckedChange = { viewModel.setLocalEncryptionEnabled(it) },
                     modifier = Modifier.testTag("encryption_switch")
@@ -204,7 +204,7 @@ fun PrivacyCenterScreen(
                 Header(Icons.Default.Cloud, "Firebase ক্লাউড সিঙ্ক (ঐচ্ছিক)")
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "google-services.json যোগ করা থাকলে তোমার নিজের ডেটা তোমার Firebase অ্যাকাউন্টে ব্যাকআপ হবে। ডিফল্টে বন্ধ।",
+                    text = "google-services.json যোগ করা থাকলে তোমার নিজের ডেটা তোমার Firebase অ্যাকাউন্টে ব্যাকআপ হবে। ক্লাউডে পড়া ডেটা এনক্রিপ্টেড নয়, তাই ব্যাকআপ নেওয়ার আগে ভেবে নাও — ডিফল্টে বন্ধ।",
                     fontSize = 11.sp,
                     color = TextSecondary,
                     lineHeight = 16.sp

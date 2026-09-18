@@ -564,7 +564,7 @@ fun SettingsScreen(
                     color = CyanPrimary
                 )
                 Text(
-                    text = "Version 13.99.0 (Final Production Release)",
+                    text = "Version 14.0.0 (Full Feature Release)",
                     fontSize = 12.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.SemiBold,

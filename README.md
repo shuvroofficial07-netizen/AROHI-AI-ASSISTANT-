@@ -1,6 +1,6 @@
 # AROHI AI Assistant by Shù Vrô
 
-**Version 13.97.7 — Autonomous Android AI Operating Layer**
+**Version 14.0.0 — Bengali-first AI companion with a real productivity & pro-active layer**
 
 AROHI is a real, working Android AI assistant built with Kotlin + Jetpack Compose. No fake data, no simulated actions — every reading and every action comes from real device APIs.
 
@@ -25,6 +25,18 @@ AROHI is a real, working Android AI assistant built with Kotlin + Jetpack Compos
 | ✅ Smart Tasks | Saved commands persisted in Room, executed through the real brain, genuine success/failure recorded |
 | 🩺 System Health | Real-time checks of permissions, services, camera hardware, battery optimization and Gemini link latency |
 | 👁️ Vision | Real CameraX capture → Base64 → Gemini multimodal analysis |
+| 🗓️ Reminders & alarms | Real `AlarmManager` alarms (exact where the OS allows), recurring rules (daily / weekly / weekdays / monthly), re-armed after reboot or app update |
+| ✅ To-do list | Room-backed tasks, addable by voice or from the Productivity tab, completable by title |
+| 📝 Notes | Room-backed notes with search, creatable by voice |
+| ⛅ Weather | Real Open-Meteo forecast for your GPS location or any city, cached offline, with rain alerts |
+| 🔢 Calculator & converters | Offline expression calculator, unit converter (length/weight/temperature/…) and currency converter (live rates with offline fallback) |
+| 🌐 Translation | Bengali ⇄ English quick translation via the cloud brain, with an offline phrase book fallback |
+| 🗣️ Emotion-tagged replies | Every reply starts with `<emotion>…</emotion>`, stripped before speaking so the avatar animates with the real emotion |
+| 🧑‍🎤 Avatar studio | 2D portrait / 3D orb switch, idle animation, five accent palettes, five outfits, personality slider |
+| 🌅 Pro-active check-ins | Optional morning & evening notifications with weather-aware, time-aware suggestions (rain → umbrella) |
+| 🛡️ Privacy center | At-rest encryption of chat + memories (Keystore AES-GCM), JSON export/share, delete-all, optional Firestore backup |
+| 🧠 Claude option | Optional Anthropic (Claude) brain provider — same persona, same tools, bring your own key |
+| ♿ Accessibility | Font-size scale, high-contrast palette, TTS speed/pitch control |
 
 ## 📲 Install the APK
 
@@ -45,7 +57,17 @@ Every push to `main` automatically builds a fresh APK via GitHub Actions (`.gith
    - **Accessibility** → screen reading and device navigation
    - **Notifications** → background operating service
 
-Without a Gemini key AROHI still works offline through its local command engine (battery, torch, volume, calls, apps, navigation, routines).
+Without a Gemini key AROHI still works offline through its local engines (battery, torch, volume, calls, apps, navigation, routines, reminders, to-dos, notes, calculator, unit/currency conversion, weather cache, Bengali phrase book).
+
+### Optional: use Claude instead of Gemini
+
+**Settings → ব্রেইন প্রোভাইডার → Claude**, paste an Anthropic API key and save. AROHI's personality,
+tools, emotion contract and Bengali-first behaviour are identical — only the cloud engine changes.
+Both options are free to choose and nothing is locked behind a plan.
+
+### Everything is free
+
+AROHI has **no premium locks**: every feature above is available in the debug APK.
 
 ## 🛠️ Build it yourself
 
@@ -61,12 +83,17 @@ CI builds automatically on every push — see `.github/workflows/build-apk.yml`.
 
 ```
 app/src/main/java/com/example/
-├── engine/        # ArohiBrain (Gemini + tools), LocalCommandEngine, routines, verification
-├── data/          # Room database, repositories, Gemini REST client (Retrofit + Moshi)
-├── device/        # Real device managers (battery, torch, audio, telephony, contacts, apps)
-├── service/       # Foreground service, AccessibilityService, NotificationListenerService, diagnostics
+├── engine/        # ArohiBrain (Gemini/Claude + 24 tools), persona, emotion tags, time phrases,
+│                  # productivity router, offline fallback, pro-active suggestions, calculators
+├── data/          # Room database (8 tables + migration), repositories, Gemini & Anthropic clients
+├── privacy/       # Keystore AES-GCM vault, data export/delete, optional Firestore backup
+├── device/        # Real device managers (battery, torch, audio, telephony, contacts, apps),
+│                  # alarm scheduler, calendar helper, location helper, weather client
+├── service/       # Foreground service, accessibility, notification listener, reminder alarms,
+│                  # morning/evening check-ins, boot re-arming, diagnostics, notification helper
 ├── voice/         # SpeechRecognizer + TextToSpeech managers
-└── ui/            # Compose UI (Home, Chat, Device, Inbox, Memory, Vision, Health, Tasks, Settings)
+└── ui/            # Compose UI (Home, Chat, Device, Inbox, Memory, Vision, Health, Tasks,
+                   # Productivity, Weather & check-ins, Avatar Studio, Privacy Center, Settings)
 ```
 
 ---

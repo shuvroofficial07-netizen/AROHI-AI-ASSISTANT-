@@ -685,9 +685,24 @@ class ArohiViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setOfflineFallbackEnabled(enabled: Boolean) = app.settingsRepository.setOfflineFallbackEnabled(enabled)
 
+    /** Flips at-rest encryption AND rewrites existing rows so the toggle really protects data. */
     fun setLocalEncryptionEnabled(enabled: Boolean) {
         app.settingsRepository.setLocalEncryptionEnabled(enabled)
-        _statusMessage.value = if (enabled) "লোকাল এনক্রিপশন চালু হয়েছে" else "লোকাল এনক্রিপশন বন্ধ হয়েছে"
+        _statusMessage.value = if (enabled) "লোকাল এনক্রিপশন চালু হচ্ছে..." else "লোকাল এনক্রিপশন বন্ধ হচ্ছে..."
+        viewModelScope.launch(Dispatchers.IO) {
+            val converted = runCatching {
+                app.localVault.reconvertStoredData(
+                    messageDao = app.database.messageDao(),
+                    memoryDao = app.database.memoryDao(),
+                    encryptNow = enabled
+                )
+            }.getOrElse { -1 }
+            _statusMessage.value = when {
+                converted < 0 -> "এনক্রিপশন পরিবর্তন করা যায়নি"
+                enabled -> "লোকাল এনক্রিপশন চালু — $converted টি এন্ট্রি সুরক্ষিত করা হয়েছে"
+                else -> "লোকাল এনক্রিপশন বন্ধ — $converted টি এন্ট্রি আবার প্লেইন টেক্সট"
+            }
+        }
     }
 
     fun setCloudSyncEnabled(enabled: Boolean) {

@@ -22,8 +22,14 @@ interface MemoryDao {
     @Query("SELECT * FROM memories WHERE key = :key LIMIT 1")
     suspend fun getMemoryByKey(key: String): MemoryEntity?
 
+    @Query("SELECT * FROM memories")
+    suspend fun getAllMemoriesOnce(): List<MemoryEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMemory(memory: MemoryEntity): Long
+
+    @Update
+    suspend fun updateMemory(memory: MemoryEntity)
 
     @Query("DELETE FROM memories WHERE id = :id")
     suspend fun deleteMemoryById(id: Int)
