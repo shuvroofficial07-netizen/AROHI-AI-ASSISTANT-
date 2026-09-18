@@ -43,6 +43,9 @@ fun GlowingArohiAvatar(
     isSpeaking: Boolean,
     modifier: Modifier = Modifier,
     size: Dp = 220.dp,
+    primaryOverride: Color? = null,
+    secondaryOverride: Color? = null,
+    idleAnimation: Boolean = true,
     onClick: () -> Unit = {}
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "AvatarPulse")
@@ -82,12 +85,14 @@ fun GlowingArohiAvatar(
 
     // Dynamic color transition based on emotion
     val primaryGlow by animateColorAsState(
-        targetValue = if (emotion == ArohiEmotion.IDLE) CyanPrimary else emotion.glowColor,
+        targetValue = primaryOverride
+            ?: if (emotion == ArohiEmotion.IDLE) CyanPrimary else emotion.glowColor,
         animationSpec = tween(500),
         label = "PrimaryGlowColor"
     )
     val secondaryGlow by animateColorAsState(
-        targetValue = if (emotion == ArohiEmotion.IDLE) VioletSecondary else emotion.secondaryColor,
+        targetValue = secondaryOverride
+            ?: if (emotion == ArohiEmotion.IDLE) VioletSecondary else emotion.secondaryColor,
         animationSpec = tween(500),
         label = "SecondaryGlowColor"
     )
@@ -97,7 +102,9 @@ fun GlowingArohiAvatar(
         speechState == SpeechState.LISTENING -> 1.0f + (rmsLevel * 0.35f)
         isSpeaking -> breathingPulse * 1.05f
         speechState == SpeechState.PROCESSING -> breathingPulse * 0.98f
-        else -> breathingPulse
+        // Idle animation: gentle breathing even when nothing is happening.
+        idleAnimation -> breathingPulse
+        else -> 1.0f
     }
 
     Box(

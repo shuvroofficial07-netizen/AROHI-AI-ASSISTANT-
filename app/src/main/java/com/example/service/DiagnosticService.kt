@@ -180,7 +180,7 @@ class DiagnosticService(
         if (cameraIds.isEmpty()) {
             return DiagnosticItem(
                 id = "camera_vision",
-                name = "Camera & Vision AI হার্ডওয়্যার",
+                name = "Camera & Vision AI হার্ডওয়্যার",
                 category = DiagnosticCategory.HARDWARE,
                 status = DiagnosticStatusLevel.ERROR,
                 summary = "No Camera Hardware",
@@ -197,7 +197,7 @@ class DiagnosticService(
         if (!hasPermission) {
             return DiagnosticItem(
                 id = "camera_vision",
-                name = "Camera & Vision AI হার্ডওয়্যার",
+                name = "Camera & Vision AI হার্ডওয়্যার",
                 category = DiagnosticCategory.HARDWARE,
                 status = DiagnosticStatusLevel.LIMITED,
                 summary = "Permission Required",
@@ -229,7 +229,7 @@ class DiagnosticService(
 
         return DiagnosticItem(
             id = "camera_vision",
-            name = "Camera & Vision AI হার্ডওয়্যার",
+            name = "Camera & Vision AI হার্ডওয়্যার",
             category = DiagnosticCategory.HARDWARE,
             status = DiagnosticStatusLevel.READY,
             summary = "Ready ($facingSummary)",
@@ -300,7 +300,7 @@ class DiagnosticService(
         return if (hasPermission) {
             DiagnosticItem(
                 id = "microphone",
-                name = "ভয়েস ইঞ্জিন ও মাইক্রোফোন (STT)",
+                name = "ভয়েস ইঞ্জিন ও মাইক্রোফোন (STT)",
                 category = DiagnosticCategory.HARDWARE,
                 status = DiagnosticStatusLevel.READY,
                 summary = "Mic Active",
@@ -310,7 +310,7 @@ class DiagnosticService(
         } else {
             DiagnosticItem(
                 id = "microphone",
-                name = "ভয়েস ইঞ্জিন ও মাইক্রোফোন (STT)",
+                name = "ভয়েস ইঞ্জিন ও মাইক্রোফোন (STT)",
                 category = DiagnosticCategory.HARDWARE,
                 status = DiagnosticStatusLevel.LIMITED,
                 summary = "Permission Required",
@@ -330,7 +330,7 @@ class DiagnosticService(
         return if (hasPermission) {
             DiagnosticItem(
                 id = "contacts",
-                name = "কন্টাক্টস ও ডায়ালিং সার্ভিস",
+                name = "কন্টাক্টস ও ডায়ালিং সার্ভিস",
                 category = DiagnosticCategory.PERMISSIONS_ACCESS,
                 status = DiagnosticStatusLevel.READY,
                 summary = "Contacts Ready",
@@ -340,7 +340,7 @@ class DiagnosticService(
         } else {
             DiagnosticItem(
                 id = "contacts",
-                name = "কন্টাক্টস ও ডায়ালিং সার্ভিস",
+                name = "কন্টাক্টস ও ডায়ালিং সার্ভিস",
                 category = DiagnosticCategory.PERMISSIONS_ACCESS,
                 status = DiagnosticStatusLevel.LIMITED,
                 summary = "Permission Required",

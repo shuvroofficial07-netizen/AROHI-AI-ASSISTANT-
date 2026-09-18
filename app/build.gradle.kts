@@ -17,8 +17,8 @@ android {
     applicationId = "com.aistudio.arohi.shuvro"
     minSdk = 24
     targetSdk = 36
-    versionCode = 13990
-    versionName = "13.99.0"
+    versionCode = 14000
+    versionName = "14.0.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -107,8 +107,8 @@ dependencies {
   implementation(libs.coil.compose)
   implementation(libs.converter.moshi)
   implementation(libs.firebase.ai)
-  // Uncomment to use Firestore:
-  // implementation(libs.firebase.firestore)
+  // Firestore powers the optional user-controlled cloud backup in the Privacy Center.
+  implementation(libs.firebase.firestore)
 
   // Uncomment ALL FOUR of the following dependencies together to use Firebase Auth and Google
   // Sign-In via Credential Manager:

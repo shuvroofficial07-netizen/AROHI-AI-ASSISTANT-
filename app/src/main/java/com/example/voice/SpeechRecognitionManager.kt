@@ -57,13 +57,13 @@ class SpeechRecognitionManager(
             val errorMsg = when (error) {
                 SpeechRecognizer.ERROR_AUDIO -> "অডিও রেকর্ডিং ত্রুটি (Audio recording error)"
                 SpeechRecognizer.ERROR_CLIENT -> "ক্লায়েন্ট সাইড ত্রুটি (Client error)"
-                SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "মাইক্রোফোন পারমিশন প্রয়োজন (Microphone permission required)"
+                SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "মাইক্রোফোন পারমিশন প্রয়োজন (Microphone permission required)"
                 SpeechRecognizer.ERROR_NETWORK -> "নেটওয়ার্ক সমস্যা (Network error)"
                 SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "নেটওয়ার্ক টাইমআউট (Network timeout)"
                 SpeechRecognizer.ERROR_NO_MATCH -> "কোনো ভয়েস সনাক্ত হয়নি (No speech heard)"
                 SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "ভয়েস ইঞ্জিন ব্যস্ত (Recognizer busy)"
                 SpeechRecognizer.ERROR_SERVER -> "সার্ভার এরর (Server error)"
-                SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "কথা বলা হয়নি (Speech timeout)"
+                SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "কথা বলা হয়নি (Speech timeout)"
                 else -> "ভয়েস এরর ($error)"
             }
             _speechState.value = SpeechState.ERROR
@@ -101,7 +101,7 @@ class SpeechRecognitionManager(
 
     fun startListening(languageCode: String = "bn-BD") {
         if (!hasMicPermission()) {
-            onError("মাইক্রোফোন পারমিশন সক্রিয় করুন (Grant Microphone Permission)")
+            onError("মাইক্রোফোন পারমিশন সক্রিয় করুন (Grant Microphone Permission)")
             return
         }
 

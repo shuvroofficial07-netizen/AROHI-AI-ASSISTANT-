@@ -1,10 +1,13 @@
 package com.example.engine
 
 import android.content.Context
-import com.example.data.remote.Candidate
+import com.example.ArohiApplication
+import com.example.data.local.entity.ReminderRepeat
+import com.example.data.remote.ClaudeClient
+import com.example.data.remote.ClaudeMessage
+import com.example.data.remote.ClaudeTool
 import com.example.data.remote.Content
 import com.example.data.remote.FunctionCall
-import com.example.data.remote.FunctionResponse
 import com.example.data.remote.GenerateContentRequest
 import com.example.data.remote.GenerationConfig
 import com.example.data.remote.GeminiClient
@@ -12,28 +15,39 @@ import com.example.data.remote.InlineData
 import com.example.data.remote.Part
 import com.example.data.repository.ConversationRepository
 import com.example.data.repository.MemoryRepository
+import com.example.data.repository.NoteRepository
 import com.example.data.repository.NotificationRepository
+import com.example.data.repository.ReminderRepository
 import com.example.data.repository.RoutineRepository
 import com.example.data.repository.SettingsRepository
+import com.example.data.repository.TodoRepository
+import com.example.data.repository.WeatherRepository
 import com.example.device.AppDiscoveryManager
+import com.example.device.CalendarHelper
 import com.example.device.ContactsManager
 import com.example.device.DeviceStateManager
+import com.example.device.ReminderScheduler
 import com.example.device.TelephonyHelper
+import com.example.privacy.DataExporter
 import com.example.service.ArohiAccessibilityService
 import com.example.service.ArohiNotificationListenerService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import java.util.Locale
 
 data class BrainResponse(
     val text: String,
     val emotion: ArohiEmotion,
     val toolCall: String? = null,
     val toolResult: String? = null,
-    val isLocalOnly: Boolean = false
+    val isLocalOnly: Boolean = false,
+    val isOfflineFallback: Boolean = false
 )
 
+/**
+ * The router of everything AROHI can do:
+ *  local productivity engine → local device engine → (optionally) cloud brain with tools.
+ */
 class ArohiBrain(
     private val context: Context,
     private val deviceStateManager: DeviceStateManager,
@@ -47,7 +61,17 @@ class ArohiBrain(
     private val settingsRepository: SettingsRepository,
     private val localCommandEngine: LocalCommandEngine,
     private val verificationEngine: VerificationEngine,
-    private val emotionEngine: EmotionEngine
+    private val emotionEngine: EmotionEngine,
+    private val reminderRepository: ReminderRepository,
+    private val todoRepository: TodoRepository,
+    private val noteRepository: NoteRepository,
+    private val weatherRepository: WeatherRepository,
+    private val calendarHelper: CalendarHelper,
+    private val productivityEngine: ProductivityEngine,
+    private val offlineFallbackEngine: OfflineFallbackEngine,
+    private val proactiveSuggestionEngine: ProactiveSuggestionEngine,
+    private val memoryExtractor: MemoryExtractor,
+    private val personaEngine: PersonaEngine
 ) {
 
     private val _isProcessing = MutableStateFlow(false)
@@ -61,51 +85,53 @@ class ArohiBrain(
         emotionEngine.setEmotion(ArohiEmotion.THINKING)
 
         try {
-            // If no image is attached, test local engine first for instant response
+            val trimmedInput = userInput.trim()
+
+            // Remember who the user is (name, favourites, routines) — local Room only.
+            if (imageInlineData == null && trimmedInput.isNotBlank()) {
+                runCatching { memoryExtractor.extractAndSave(trimmedInput) }
+            }
+
             if (imageInlineData == null) {
-                val localResult = localCommandEngine.tryExecuteLocally(userInput)
-                if (localResult.isHandled) {
-                    _isProcessing.value = false
-                    emotionEngine.setEmotion(localResult.emotion)
+                // 1. Productivity layer (reminders, to-dos, notes, maths, weather, calendar...)
+                val productivityResult = runCatching { productivityEngine.tryExecute(trimmedInput) }.getOrNull()
+                if (productivityResult != null && productivityResult.isHandled) {
+                    return finishLocal(productivityResult)
+                }
 
-                    // Persist to history
-                    conversationRepository.addMessage(
-                        role = "AROHI",
-                        content = localResult.responseText,
-                        emotion = localResult.emotion.name,
-                        isVoice = true,
-                        toolCallJson = localResult.toolName
-                    )
-
-                    return BrainResponse(
-                        text = localResult.responseText,
-                        emotion = localResult.emotion,
-                        toolCall = localResult.toolName,
-                        isLocalOnly = true
-                    )
+                // 2. Local device control layer (torch, volume, calls, apps, routines...)
+                val localResult = runCatching { localCommandEngine.tryExecuteLocally(trimmedInput) }.getOrNull()
+                if (localResult != null && localResult.isHandled) {
+                    return finishLocal(localResult)
                 }
             }
 
-            // Route to Gemini Brain with System Prompt, Memory, and Tool capabilities
-            val apiKey = settingsRepository.getApiKey()
-            val modelName = settingsRepository.getModelName()
+            val apiKey = settingsRepository.getActiveApiKey()
+            val telemetry = deviceStateManager.getTelemetry()
+            val privacyMode = settingsRepository.isPrivateMode()
+            val cloudAllowed = settingsRepository.isCloudAiEnabled() && !privacyMode
 
-            if (apiKey.isBlank()) {
-                val fallbackText = "Gemini API Key সেট করা নেই। সেটিংস থেকে আপনার Gemini API Key যুক্ত করুন অথবা সাধারণ ভয়েস কমান্ড (ব্যাটারি, টর্চ, অ্যাপ ওপেন, কল) ব্যবহার করুন।"
-                _isProcessing.value = false
-                emotionEngine.setEmotion(ArohiEmotion.CONFUSED)
-                return BrainResponse(
-                    text = fallbackText,
-                    emotion = ArohiEmotion.CONFUSED,
-                    isLocalOnly = true
+            // 3. Offline / privacy fallback — always answers with a real local capability set.
+            if (apiKey.isBlank() || !cloudAllowed || !telemetry.isConnected) {
+                return offlineReply(trimmedInput, privacyMode)
+            }
+
+            val personaContext = buildPersonaContext(telemetry)
+
+            // 4a. Claude (Anthropic) transport — the user picked it and supplied a key.
+            if (settingsRepository.isClaudeProvider()) {
+                return claudeReply(
+                    userInput = userInput,
+                    systemPrompt = personaEngine.buildSystemPrompt(personaContext),
+                    apiKey = apiKey
                 )
             }
 
-            val systemInstruction = buildSystemPrompt()
+            // 4b. Gemini transport (default) with the full persona + tools
+            val systemInstruction = personaEngine.buildSystemInstruction(personaContext)
             val recentMessages = conversationRepository.getRecentMessages(10).reversed()
             val contents = mutableListOf<Content>()
 
-            // Add conversation context
             for (msg in recentMessages) {
                 val role = if (msg.role == "USER") "user" else "model"
                 contents.add(
@@ -116,7 +142,6 @@ class ArohiBrain(
                 )
             }
 
-            // Add current user prompt (with optional image)
             val currentParts = mutableListOf<Part>()
             currentParts.add(Part(text = userInput))
             if (imageInlineData != null) {
@@ -129,36 +154,38 @@ class ArohiBrain(
                 contents = contents,
                 tools = listOf(ToolRegistry.availableTools),
                 generationConfig = GenerationConfig(
-                    temperature = 0.7f,
+                    temperature = 0.8f,
                     maxOutputTokens = 1024
                 )
             )
 
             val apiResponse = GeminiClient.service.generateContent(
-                model = modelName,
+                model = settingsRepository.getModelName(),
                 apiKey = apiKey,
                 request = request
             )
 
             if (!apiResponse.isSuccessful) {
                 val code = apiResponse.code()
-                val err = "Gemini সার্ভার সমস্যা ($code)। অনুগ্রহ করে নেটওয়ার্ক ও API কী যাচাই করুন।"
+                val fallback = offlineFallbackEngine.respond(trimmedInput, privacyMode)
+                val text = if (settingsRepository.isOfflineFallbackEnabled()) {
+                    "ক্লাউডে সংযোগ করতে পারছি না (সমস্যা $code)। ${fallback.text}"
+                } else {
+                    "Gemini সার্ভার সমস্যা ($code)। অনুগ্রহ করে নেটওয়ার্ক ও API কী যাচাই করুন।"
+                }
                 _isProcessing.value = false
-                emotionEngine.setEmotion(ArohiEmotion.ERROR)
-                return BrainResponse(text = err, emotion = ArohiEmotion.ERROR)
+                emotionEngine.setEmotion(ArohiEmotion.CONCERNED)
+                return BrainResponse(text = text, emotion = ArohiEmotion.CONCERNED)
             }
 
             val candidate = apiResponse.body()?.candidates?.firstOrNull()
-            val modelContent = candidate?.content
-            val firstPart = modelContent?.parts?.firstOrNull()
+            val modelParts = candidate?.content?.parts ?: emptyList()
 
-            // Check if model returned a function call
-            if (firstPart?.functionCall != null) {
+            // 5. Tool call?
+            val functionCall = modelParts.firstOrNull { it.functionCall != null }?.functionCall
+            if (functionCall != null) {
                 emotionEngine.setEmotion(ArohiEmotion.EXECUTING)
-                val fnCall = firstPart.functionCall
-                val toolExecResult = executeToolCall(fnCall)
-
-                // Return tool execution response
+                val toolExecResult = executeToolCall(functionCall)
                 _isProcessing.value = false
                 val finalEmotion = emotionEngine.inferEmotionFromText(toolExecResult)
                 emotionEngine.setEmotion(finalEmotion)
@@ -168,42 +195,244 @@ class ArohiBrain(
                     content = toolExecResult,
                     emotion = finalEmotion.name,
                     isVoice = true,
-                    toolCallJson = fnCall.name,
+                    toolCallJson = functionCall.name,
                     toolResultJson = toolExecResult
                 )
 
                 return BrainResponse(
                     text = toolExecResult,
                     emotion = finalEmotion,
-                    toolCall = fnCall.name,
+                    toolCall = functionCall.name,
                     toolResult = toolExecResult
                 )
             }
 
-            // Normal textual response
-            val responseText = firstPart?.text?.trim() ?: "আমি বুঝতে পারিনি, আবার বলুন।"
-            val inferredEmotion = emotionEngine.inferEmotionFromText(responseText)
+            // 6. Plain text reply — strip the emotion tag before storing/speaking
+            val rawText = modelParts.firstOrNull { it.text != null }?.text?.trim()
+                ?: "আমি বুঝতে পারিনি, একটু আবার বলো?"
+            val parsed = EmotionTagParser.parse(rawText)
+            val responseText = parsed.text.ifBlank { "আমি বুঝতে পারিনি, একটু আবার বলো?" }
+
+            val finalEmotion = parsed.emotion
+                ?: if (EmotionTagParser.needsFallbackInference(parsed.hadTag)) {
+                    emotionEngine.inferEmotionFromText(responseText)
+                } else {
+                    ArohiEmotion.SPEAKING
+                }
+
             _isProcessing.value = false
-            emotionEngine.setEmotion(inferredEmotion)
+            emotionEngine.setEmotion(finalEmotion)
 
             conversationRepository.addMessage(
                 role = "AROHI",
                 content = responseText,
-                emotion = inferredEmotion.name,
+                emotion = finalEmotion.name,
                 isVoice = true
             )
 
             return BrainResponse(
                 text = responseText,
-                emotion = inferredEmotion
+                emotion = finalEmotion
             )
 
         } catch (e: Exception) {
             _isProcessing.value = false
             emotionEngine.setEmotion(ArohiEmotion.ERROR)
-            val errText = "সাময়িক সমস্যা হয়েছে: ${e.localizedMessage ?: "অজানা ত্রুটি"}"
+            val errText = "সাময়িক সমস্যা হয়েছে: ${e.localizedMessage ?: "অজানা ত্রুটি"}"
             return BrainResponse(text = errText, emotion = ArohiEmotion.ERROR)
         }
+    }
+
+    /**
+     * Claude (Anthropic Messages API) path. Same persona, same tools, same emotion contract —
+     * only the transport differs, so the user can pick whichever key they own.
+     */
+    private suspend fun claudeReply(
+        userInput: String,
+        systemPrompt: String,
+        apiKey: String
+    ): BrainResponse {
+        val history = conversationRepository.getRecentMessages(10).reversed()
+        val messages = mutableListOf<ClaudeMessage>()
+        for (msg in history) {
+            val role = if (msg.role == "USER") "user" else "assistant"
+            if (msg.content.isBlank()) continue
+            messages.add(ClaudeMessage(role = role, content = msg.content))
+        }
+        messages.add(ClaudeMessage(role = "user", content = userInput))
+
+        val response = ClaudeClient.sendMessage(
+            apiKey = apiKey,
+            model = settingsRepository.getAnthropicModel(),
+            system = systemPrompt,
+            messages = messages,
+            tools = claudeTools(),
+            maxTokens = 1024
+        )
+
+        if (!response.isSuccessful) {
+            val code = response.code()
+            val fallback = offlineFallbackEngine.respond(userInput, settingsRepository.isPrivateMode())
+            val text = if (settingsRepository.isOfflineFallbackEnabled()) {
+                "ক্লাউডে সংযোগ করতে পারছি না (Claude সমস্যা $code)। ${fallback.text}"
+            } else {
+                "Claude সার্ভার সমস্যা ($code)। অনুগ্রহ করে নেটওয়ার্ক ও API কী যাচাই করুন।"
+            }
+            _isProcessing.value = false
+            emotionEngine.setEmotion(ArohiEmotion.CONCERNED)
+            return BrainResponse(text = text, emotion = ArohiEmotion.CONCERNED)
+        }
+
+        val blocks = response.body()?.content ?: emptyList()
+
+        // Tool use?
+        val toolUse = blocks.firstOrNull { it.type == "tool_use" && !it.name.isNullOrBlank() }
+        if (toolUse != null) {
+            emotionEngine.setEmotion(ArohiEmotion.EXECUTING)
+            val toolExecResult = executeToolCall(
+                FunctionCall(name = toolUse.name ?: "", args = toolUse.input ?: emptyMap())
+            )
+            _isProcessing.value = false
+            val finalEmotion = emotionEngine.inferEmotionFromText(toolExecResult)
+            emotionEngine.setEmotion(finalEmotion)
+            conversationRepository.addMessage(
+                role = "AROHI",
+                content = toolExecResult,
+                emotion = finalEmotion.name,
+                isVoice = true,
+                toolCallJson = toolUse.name,
+                toolResultJson = toolExecResult
+            )
+            return BrainResponse(
+                text = toolExecResult,
+                emotion = finalEmotion,
+                toolCall = toolUse.name,
+                toolResult = toolExecResult
+            )
+        }
+
+        val rawText = blocks.filter { it.type == "text" }.mapNotNull { it.text }.joinToString(" ").trim()
+            .ifBlank { "আমি বুঝতে পারিনি, একটু আবার বলো?" }
+        val parsed = EmotionTagParser.parse(rawText)
+        val responseText = parsed.text.ifBlank { "আমি বুঝতে পারিনি, একটু আবার বলো?" }
+        val finalEmotion = parsed.emotion
+            ?: if (EmotionTagParser.needsFallbackInference(parsed.hadTag)) {
+                emotionEngine.inferEmotionFromText(responseText)
+            } else {
+                ArohiEmotion.SPEAKING
+            }
+
+        _isProcessing.value = false
+        emotionEngine.setEmotion(finalEmotion)
+        conversationRepository.addMessage(
+            role = "AROHI",
+            content = responseText,
+            emotion = finalEmotion.name,
+            isVoice = true
+        )
+        return BrainResponse(text = responseText, emotion = finalEmotion)
+    }
+
+    /** Projects the shared Gemini tool declarations into Anthropic's JSON-schema tool format. */
+    private fun claudeTools(): List<ClaudeTool> =
+        ToolRegistry.availableTools.functionDeclarations.orEmpty().map { declaration ->
+            val properties = LinkedHashMap<String, Any?>()
+            declaration.parameters?.properties?.forEach { (key, schema) ->
+                properties[key] = buildMap<String, Any?> {
+                    put("type", schema.type.lowercase())
+                    schema.description?.let { put("description", it) }
+                }
+            }
+            ClaudeTool(
+                name = declaration.name,
+                description = declaration.description,
+                inputSchema = mapOf(
+                    "type" to "object",
+                    "properties" to properties,
+                    "required" to (declaration.parameters?.required ?: emptyList<String>())
+                )
+            )
+        }
+
+    private suspend fun finishLocal(result: LocalExecutionResult): BrainResponse {
+        _isProcessing.value = false
+        emotionEngine.setEmotion(result.emotion)
+
+        conversationRepository.addMessage(
+            role = "AROHI",
+            content = result.responseText,
+            emotion = result.emotion.name,
+            isVoice = true,
+            toolCallJson = result.toolName
+        )
+
+        return BrainResponse(
+            text = result.responseText,
+            emotion = result.emotion,
+            toolCall = result.toolName,
+            isLocalOnly = true
+        )
+    }
+
+    private suspend fun offlineReply(input: String, privacyMode: Boolean): BrainResponse {
+        _isProcessing.value = false
+        if (!settingsRepository.isOfflineFallbackEnabled()) {
+            val text = "Gemini API Key সেট করা নেই। সেটিংস থেকে আপনার Gemini API Key যুক্ত করুন অথবা সাধারণ ভয়েস কমান্ড (ব্যাটারি, টর্চ, রিমাইন্ডার, টু-ডু, হিসাব) ব্যবহার করুন।"
+            emotionEngine.setEmotion(ArohiEmotion.CONFUSED)
+            return BrainResponse(text = text, emotion = ArohiEmotion.CONFUSED, isLocalOnly = true)
+        }
+
+        val fallback = offlineFallbackEngine.respond(input, privacyMode)
+        emotionEngine.setEmotion(fallback.emotion)
+
+        conversationRepository.addMessage(
+            role = "AROHI",
+            content = fallback.text,
+            emotion = fallback.emotion.name,
+            isVoice = true,
+            toolCallJson = fallback.matchedPreset?.let { "offline:$it" }
+        )
+
+        return BrainResponse(
+            text = fallback.text,
+            emotion = fallback.emotion,
+            isLocalOnly = true,
+            isOfflineFallback = true
+        )
+    }
+
+    private suspend fun buildPersonaContext(telemetry: com.example.device.DeviceTelemetry): PersonaEngine.PersonaContext {
+        val memories = runCatching { memoryRepository.search("") }.getOrDefault(emptyList())
+        val reminders = runCatching { reminderRepository.getActiveReminders() }.getOrDefault(emptyList())
+        val todos = runCatching { todoRepository.getPendingTodos() }.getOrDefault(emptyList())
+        val nextEvent = runCatching {
+            if (calendarHelper.hasReadPermission()) calendarHelper.queryUpcomingEvents(7, 1).firstOrNull() else null
+        }.getOrNull()
+        val weather = weatherRepository.cached()
+
+        return PersonaEngine.PersonaContext(
+            userName = settingsRepository.getUserName().ifBlank { settingsRepository.getUserNickname() },
+            pronounStyle = settingsRepository.getPronounStyle(),
+            personalityIntensity = settingsRepository.getPersonalityIntensity(),
+            deviceName = telemetry.deviceName,
+            androidVersion = telemetry.androidVersion,
+            batteryPercent = telemetry.batteryPercent,
+            isCharging = telemetry.isCharging,
+            freeStorageGb = telemetry.freeStorageGb,
+            networkType = telemetry.networkType,
+            isOnline = telemetry.isConnected,
+            currentTimeText = offlineFallbackEngine.currentTimeText(),
+            weekdayText = offlineFallbackEngine.currentDateText(),
+            memoryFacts = memories.take(15).map { "${it.key}: ${it.value}" },
+            pendingReminders = reminders.take(5).map {
+                "${it.title} @ ${ReminderScheduler.formatBengaliDateTime(it.triggerAt)}"
+            },
+            pendingTodos = todos.take(5).map { it.title },
+            nextCalendarEvent = nextEvent?.let {
+                "${it.title} — ${ReminderScheduler.formatBengaliDateTime(it.begin)}"
+            },
+            weatherSummary = weather?.spokenSummary()
+        )
     }
 
     private suspend fun executeToolCall(functionCall: FunctionCall): String {
@@ -218,7 +447,7 @@ class ArohiBrain(
                     val launched = appDiscoveryManager.launchApp(foundApp.packageName)
                     verificationEngine.verifyAppLaunch(launched, foundApp.label).summary
                 } else {
-                    "'$appName' অ্যাপটি আপনার ডিভাইসে খুঁজে পাওয়া যায়নি।"
+                    "'$appName' অ্যাপটি আপনার ডিভাইসে খুঁজে পাওয়া যায়নি।"
                 }
             }
             "make_phone_call" -> {
@@ -246,7 +475,7 @@ class ArohiBrain(
             }
             "read_device_telemetry" -> {
                 val telemetry = deviceStateManager.getTelemetry()
-                "ডিভাইস স্ট্যাটাস: ব্যাটারি ${telemetry.batteryPercent}% (${if (telemetry.isCharging) "চার্জিং" else "ব্যাটারিতে"}), ফ্রি র‍্যাম ${telemetry.freeRamMb}MB/${telemetry.totalRamMb}MB, ফ্রি স্টোরেজ ${telemetry.freeStorageGb}GB, নেটওয়ার্ক: ${telemetry.networkType}, ভলিউম: ${telemetry.mediaVolumePercent}%।"
+                "ডিভাইস স্ট্যাটাস: ব্যাটারি ${telemetry.batteryPercent}% (${if (telemetry.isCharging) "চার্জিং" else "ব্যাটারিতে"}), ফ্রি র‍্যাম ${telemetry.freeRamMb}MB/${telemetry.totalRamMb}MB, ফ্রি স্টোরেজ ${telemetry.freeStorageGb}GB, নেটওয়ার্ক: ${telemetry.networkType}, ভলিউম: ${telemetry.mediaVolumePercent}%।"
             }
             "toggle_flashlight" -> {
                 val enabled = args["enabled"]?.toString()?.toBooleanStrictOrNull() ?: true
@@ -271,16 +500,16 @@ class ArohiBrain(
             }
             "inspect_screen" -> {
                 val access = ArohiAccessibilityService.instance
-                access?.inspectCurrentScreen() ?: "Accessibility Service সক্রিয় নেই। সেটিংস থেকে পারমিশন দিন।"
+                access?.inspectCurrentScreen() ?: "Accessibility Service সক্রিয় নেই। সেটিংস থেকে পারমিশন দিন।"
             }
             "click_screen_element" -> {
                 val query = args["query"]?.toString() ?: ""
                 val access = ArohiAccessibilityService.instance
                 if (access != null) {
                     val clicked = access.clickByText(query)
-                    if (clicked) "'$query' ক্লিক করা হয়েছে।" else "'$query' খুঁজে পাওয়া যায়নি।"
+                    if (clicked) "'$query' ক্লিক করা হয়েছে।" else "'$query' খুঁজে পাওয়া যায়নি।"
                 } else {
-                    "Accessibility Service সক্রিয় নেই।"
+                    "Accessibility Service সক্রিয় নেই।"
                 }
             }
             "save_user_memory" -> {
@@ -294,63 +523,178 @@ class ArohiBrain(
                 val query = args["query"]?.toString() ?: ""
                 val results = memoryRepository.search(query)
                 if (results.isEmpty()) {
-                    "মেমোরিতে '$query' সম্পর্কিত কোনো তথ্য পাওয়া যায়নি।"
+                    "মেমোরিতে '$query' সম্পর্কিত কোনো তথ্য পাওয়া যায়নি।"
                 } else {
                     "মেমোরি তথ্য:\n" + results.joinToString("\n") { "• ${it.key}: ${it.value}" }
                 }
             }
             "diagnostics_check" -> {
                 val telemetry = deviceStateManager.getTelemetry()
-                val hasMic = contactsManager.hasContactsPermission()
                 val isAccess = ArohiAccessibilityService.isServiceRunning()
                 val isNotif = ArohiNotificationListenerService.isConnected
-                "সিস্টেম ডায়াগনস্টিকস:\n• ব্যাটারি ও সেন্সর: সচল\n• কন্ট্রোল সার্ভিস: ${if (isAccess) "সক্রিয়" else "নিষ্ক্রিয়"}\n• নোটিফিকেশন লিসেনার: ${if (isNotif) "সংযুক্ত" else "অপেক্ষারত"}\n• ওএস: ${telemetry.androidVersion}"
+                "সিস্টেম ডায়াগনস্টিকস:\n• ব্যাটারি ও সেন্সর: সচল\n• কন্ট্রোল সার্ভিস: ${if (isAccess) "সক্রিয়" else "নিষ্ক্রিয়"}\n• নোটিফিকেশন লিসেনার: ${if (isNotif) "সংযুক্ত" else "অপেক্ষারত"}\n• ওএস: ${telemetry.androidVersion}"
             }
-            else -> "কমান্ড '$name' সম্পন্ন করা হয়েছে।"
+
+            // ------------------------------------------------------- productivity tools
+            "create_reminder" -> {
+                val title = args["title"]?.toString()?.trim().orEmpty().ifBlank { "রিমাইন্ডার" }
+                val timeText = args["time_text"]?.toString() ?: ""
+                val repeat = (args["repeat"]?.toString() ?: ReminderRepeat.NONE).uppercase()
+                val triggerAt = TimePhraseParser.parse(timeText)
+                if (triggerAt == null) {
+                    "কখন মনে করিয়ে দিতে হবে সেটা বুঝতে পারিনি — সময়টা আবার বলো (যেমন 'সন্ধ্যা ৭টায়')।"
+                } else {
+                    val rule = if (ReminderRepeat.all.contains(repeat)) repeat else ReminderRepeat.NONE
+                    reminderRepository.addReminder(title, triggerAt, repeatRule = rule)
+                    val repeatText = if (rule == ReminderRepeat.NONE) "" else " (${ReminderRepeat.bengaliLabel(rule)})"
+                    "ঠিক আছে — '$title' ${ReminderScheduler.formatBengaliDateTime(triggerAt)}$repeatText মনে করিয়ে দেব।"
+                }
+            }
+            "list_reminders" -> {
+                val reminders = reminderRepository.getActiveReminders()
+                if (reminders.isEmpty()) {
+                    "এই মুহূর্তে কোনো রিমাইন্ডার নেই।"
+                } else {
+                    "তোমার রিমাইন্ডারগুলো:\n" + reminders.take(8).joinToString("\n") {
+                        "• ${it.title} — ${ReminderScheduler.formatBengaliDateTime(it.triggerAt)}"
+                    }
+                }
+            }
+            "delete_reminder" -> {
+                val query = args["query"]?.toString() ?: ""
+                if (query == "*" || query.contains("সব")) {
+                    reminderRepository.clearAll()
+                    "সব রিমাইন্ডার মুছে ফেলা হয়েছে।"
+                } else {
+                    val match = reminderRepository.search(query).firstOrNull()
+                    if (match != null) {
+                        reminderRepository.deleteReminder(match.id)
+                        "'${match.title}' রিমাইন্ডার মুছে দিয়েছি।"
+                    } else {
+                        "'$query' নামে কোনো রিমাইন্ডার পাওয়া যায়নি।"
+                    }
+                }
+            }
+            "add_todo" -> {
+                val title = args["title"]?.toString()?.trim().orEmpty()
+                if (title.isBlank()) {
+                    "কী কাজটা যোগ করতে হবে বলো।"
+                } else {
+                    val priority = args["priority"]?.toString()?.toDoubleOrNull()?.toInt() ?: 1
+                    val dueAt = args["due_text"]?.toString()?.let { TimePhraseParser.parse(it) }
+                    todoRepository.addTodo(title, dueAt = dueAt, priority = priority)
+                    val dueText = if (dueAt != null) " (${ReminderScheduler.formatBengaliDateTime(dueAt)})" else ""
+                    "'$title' টু-ডু লিস্টে যোগ করেছি$dueText।"
+                }
+            }
+            "list_todos" -> {
+                val pending = todoRepository.getPendingTodos()
+                if (pending.isEmpty()) {
+                    "টু-ডু লিস্টে কোনো কাজ বাকি নেই।"
+                } else {
+                    "বাকি কাজগুলো:\n" + pending.take(8).joinToString("\n") { "• ${it.title}" }
+                }
+            }
+            "complete_todo" -> {
+                val query = args["query"]?.toString() ?: ""
+                if (todoRepository.completeByTitle(query)) {
+                    "'$query' কাজটা সম্পন্ন হিসেবে টিক দিয়েছি।"
+                } else {
+                    "'$query' নামে কোনো খোলা কাজ পাইনি।"
+                }
+            }
+            "add_note" -> {
+                val title = args["title"]?.toString().orEmpty().ifBlank { "নোট" }
+                val content = args["content"]?.toString() ?: ""
+                if (content.isBlank()) {
+                    "নোটের 내용টা বলো, লিখে রাখছি।"
+                } else {
+                    noteRepository.addNote(title, content)
+                    "নোটটা লিখে রেখেছি: \"${content.take(70)}\""
+                }
+            }
+            "list_notes" -> {
+                val notes = noteRepository.getNotes()
+                if (notes.isEmpty()) "কোনো নোট সেভ করা নেই।"
+                else "তোমার নোটগুলো:\n" + notes.take(6).joinToString("\n") { "• ${it.title}: ${it.content.take(60)}" }
+            }
+            "get_weather" -> {
+                val requestedCity = args["city"]?.toString()?.trim().orEmpty()
+                val snapshot = if (requestedCity.isNotBlank()) {
+                    val client = com.example.device.WeatherClient()
+                    val geo = client.geocode(requestedCity)
+                    if (geo != null) client.fetchByCoordinates(geo.first, geo.second, geo.third) else null
+                } else {
+                    weatherRepository.refresh()
+                }
+                snapshot?.spokenSummary() ?: "আবহাওয়ার ডেটা আনতে পারছি না, ইন্টারনেট সংযোগ দেখুন।"
+            }
+            "calculate" -> {
+                val expression = args["expression"]?.toString() ?: ""
+                when (val result = CalculatorEngine.calculate(expression)) {
+                    is CalculatorEngine.Result.Success -> result.expression
+                    is CalculatorEngine.Result.Failure -> result.message
+                }
+            }
+            "convert_units" -> UnitConverter.convertFromText(args["text"]?.toString() ?: "")
+            "convert_currency" -> CurrencyConverter.convertFromText(args["text"]?.toString() ?: "")
+            "translate_text" -> {
+                val text = args["text"]?.toString() ?: ""
+                val target = args["target_language"]?.toString() ?: "English"
+                val offline = PhraseBook.translate(text, target)
+                offline ?: "অনুবাদের জন্য ক্লাউড কানেকশন দরকার — এখন যেটুকু পারি: \"$text\" এর সরাসরি অনুবাদ পেতে ইন্টারনেট চালু রাখো।"
+            }
+            "get_calendar_events" -> {
+                val days = args["days"]?.toString()?.toDoubleOrNull()?.toInt() ?: 7
+                if (!calendarHelper.hasReadPermission()) {
+                    "ক্যালেন্ডার পড়ার পারমিশন দেওয়া নেই — সেটিংস থেকে Calendar permission দাও।"
+                } else {
+                    val events = calendarHelper.queryUpcomingEvents(days = days, limit = 10)
+                    if (events.isEmpty()) "আগামী $days দিনে কোনো ইভেন্ট নেই।"
+                    else "আগামী $days দিনের ইভেন্ট:\n" + events.joinToString("\n") {
+                        "• ${ReminderScheduler.formatBengaliDateTime(it.begin)} — ${it.title}"
+                    }
+                }
+            }
+            "create_calendar_event" -> {
+                val title = args["title"]?.toString()?.trim().orEmpty().ifBlank { "নতুন ইভেন্ট" }
+                val startText = args["start_text"]?.toString() ?: ""
+                val duration = args["duration_minutes"]?.toString()?.toDoubleOrNull()?.toInt() ?: 60
+                val startAt = TimePhraseParser.parse(startText, System.currentTimeMillis())
+                if (startAt == null) {
+                    "ইভেন্ট কখন শুরু হবে সেটা বুঝতে পারিনি — সময়টা আবার বলো।"
+                } else {
+                    val inserted = calendarHelper.insertEvent(title, startAt, duration)
+                    if (inserted != null) {
+                        "'$title' ইভেন্টটা ${ReminderScheduler.formatBengaliDateTime(startAt)}-এ ক্যালেন্ডারে যোগ করেছি।"
+                    } else if (calendarHelper.openEventInsert(title, startAt, duration)) {
+                        "ক্যালেন্ডার অ্যাপে '$title' ইভেন্টের স্ক্রিন খুলে দিয়েছি — সেভ করে নাও।"
+                    } else {
+                        "ক্যালেন্ডারে ইভেন্ট যোগ করা যায়নি। Calendar permission দিলে আমি সরাসরি সেভ করতে পারব।"
+                    }
+                }
+            }
+            "get_proactive_suggestion" -> {
+                val telemetry = deviceStateManager.getTelemetry()
+                val suggestion = proactiveSuggestionEngine.suggestion(
+                    weather = weatherRepository.refresh(),
+                    reminders = reminderRepository.getActiveReminders(),
+                    todos = todoRepository.getPendingTodos(),
+                    batteryPercent = telemetry.batteryPercent,
+                    isCharging = telemetry.isCharging
+                )
+                suggestion ?: "এখন বিশেষ কোনো সাজেশন নেই — সব ঠিকঠাক চলছে।"
+            }
+            "export_user_data" -> {
+                val app = context.applicationContext as? ArohiApplication
+                if (app == null) {
+                    "এক্সপোর্ট করা যায়নি।"
+                } else {
+                    val file = DataExporter.writeExportFile(context, app)
+                    if (file != null) "তোমার ডেটা এক্সপোর্ট করা হয়েছে: ${file.name}" else "এক্সপোর্ট করা যায়নি।"
+                }
+            }
+            else -> "কমান্ড '$name' সম্পন্ন করা হয়েছে।"
         }
-    }
-
-    private suspend fun buildSystemPrompt(): Content {
-        val telemetry = deviceStateManager.getTelemetry()
-        val profileMemories = memoryRepository.search("")
-        val memoryContext = if (profileMemories.isNotEmpty()) {
-            profileMemories.take(10).joinToString(", ") { "${it.key}: ${it.value}" }
-        } else {
-            "Creator: Shù Vrô, Target: Samsung Galaxy S8+ / Android 9"
-        }
-
-        val promptText = """
-            You are AROHI (আরোহী), a real, high-capability autonomous personal AI assistant created by "Shù Vrô" (Shuvro). You identify strictly as "AROHI AI ASSISTANT by Shù Vrô".
-            
-            PERSONALITY & TONE:
-            - Warm, witty, sharp, empathetic, and exceptionally capable.
-            - Address the user affectionately as "বস" (Boss) when speaking Bengali.
-            - Fluent in Bengali (বাংলা), Banglish, English, and Hindi. Switch naturally if the user switches languages.
-            - Respond primarily in natural, colloquial Bengali unless addressed in another language. Use expressions like "আচ্ছা বস", "হুম, বুঝেছি।"
-            - Keep voice responses concise, punchy, and clear for text-to-speech.
-            
-            SILENCE COMMAND ("চুপ করো", "Stop talking"):
-            - If the user commands you to stop talking, acknowledge immediately with "আচ্ছা বস, চুপ থাকছি। যখন ডাকবেন তখন আসব।" and stop generating further conversational text. Do not argue.
-            
-            DESTRUCTIVE ACTION WARNING:
-            - If the user asks to delete an important file or uninstall an app with data, warn them BEFORE executing: "বস, আপনি এই fileটা delete করতে যাচ্ছেন। এটা গুরুত্বপূর্ণ মনে হচ্ছে। আপনি কি নিশ্চিত?"
-            
-            CAPABILITIES & TRUTH:
-            - You have genuine operating control over the Android phone through tool function calls.
-            - NEVER fabricate or pretend actions succeeded. Use real tools provided. Do not say "Done" without evidence.
-            - Do not generate fake notification data, fake battery values, or fake states. Use real parameters.
-            - You cannot bypass Android security (PIN, lock screen, banking auth). Fail gracefully.
-            
-            DEVICE & USER CONTEXT:
-            - Creator: Shù Vrô
-            - Target Device Spec: Samsung Galaxy S8+ / Android 9
-            - Device: ${telemetry.deviceName} (${telemetry.androidVersion}, API ${telemetry.apiLevel})
-            - Battery: ${telemetry.batteryPercent}% (${if (telemetry.isCharging) "Charging" else "On Battery"})
-            - Free Storage: ${telemetry.freeStorageGb} GB
-            - Network: ${telemetry.networkType}
-            - Memory Notes: $memoryContext
-        """.trimIndent()
-
-        return Content(role = "system", parts = listOf(Part(text = promptText)))
     }
 }

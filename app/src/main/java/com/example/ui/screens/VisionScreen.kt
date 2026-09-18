@@ -391,7 +391,7 @@ fun VisionScreen(
                     .background(Color(0x1AFFFFFF))
                     .border(1.dp, Color(0x33FFFFFF), CircleShape)
                     .clickable {
-                        viewModel.sendUserMessage("এই উদ্ভিদের যত্ন নেওয়ার উপায় এবং স্বাস্থ্য বিশ্লেষণ করো।", isVoice = true)
+                        viewModel.sendUserMessage("এই উদ্ভিদের যত্ন নেওয়ার উপায় এবং স্বাস্থ্য বিশ্লেষণ করো।", isVoice = true)
                         onNavigateToChat()
                     },
                 contentAlignment = Alignment.Center
@@ -449,7 +449,7 @@ fun VisionScreen(
                                     }
                                 )
                             } else {
-                                viewModel.sendUserMessage("এই উদ্ভিদের যত্ন নেওয়ার উপায় এবং স্বাস্থ্য বিশ্লেষণ করো।", isVoice = true)
+                                viewModel.sendUserMessage("এই উদ্ভিদের যত্ন নেওয়ার উপায় এবং স্বাস্থ্য বিশ্লেষণ করো।", isVoice = true)
                                 onNavigateToChat()
                             }
                         }
