@@ -69,22 +69,24 @@ jobs:
 
       - name: Build debug APK
         run: |
-          set -o pipefail
-          ./gradlew :app:assembleDebug --stacktrace --no-daemon --console=plain 2>&1 | tee /tmp/build.log
-          STATUS=${PIPESTATUS[0]}
+          set +e
+          ./gradlew :app:assembleDebug --stacktrace --no-daemon --console=plain > /tmp/build.log 2>&1
+          STATUS=$?
+          echo "---- gradle tail ----"
+          tail -n 40 /tmp/build.log
+          echo "---- end gradle tail ----"
           if [ "$STATUS" -ne 0 ]; then
-            ERRORS=$(grep -E '^e: |error:|FAILURE:|Caused by:|Cannot invoke|Execution failed|What went wrong|FAILED' /tmp/build.log | head -200 || true)
-            if [ -z "$ERRORS" ]; then ERRORS=$(tail -c 6000 /tmp/build.log || true); fi
+            ERRORS=$(grep -E '^e: |error:|FAILURE:|Caused by:|Cannot invoke|Execution failed|What went wrong|FAILED' /tmp/build.log | head -200)
+            if [ -z "$ERRORS" ]; then ERRORS=$(tail -c 6000 /tmp/build.log); fi
             printf '%s' "$ERRORS" > /tmp/errors.txt
             ESCAPED=$(head -c 5000 /tmp/errors.txt | sed -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
             echo "::error::${ESCAPED}"
-            # Also publish the compiler output as its own check run: check-run text is readable
-            # through the REST API even though the raw job log lives on unreachable blob storage.
             if command -v jq >/dev/null 2>&1; then
-              jq -n --rawfile text /tmp/errors.txt --arg sha "$GITHUB_SHA" '{name:"AROHI Gradle log", head_sha:$sha, status:"completed", conclusion:"failure", output:{title:"Gradle failure output", summary:"Compiler/processor output captured from the failing build", text:($text[0:60000])}}' > /tmp/checkrun.json 2>/dev/null || true
-              gh api -X POST "repos/${GITHUB_REPOSITORY}/check-runs" --input /tmp/checkrun.json >/dev/null 2>&1 || true
+              jq -n --rawfile full /tmp/build.log '{name:"AROHI Gradle log", head_sha:env.GITHUB_SHA, status:"completed", conclusion:"failure", output:{title:"Gradle failure output", summary:"Full tail of the failing Gradle build", text:($full[-60000:])}}' > /tmp/checkrun.json 2>/dev/null
+              gh api -X POST "repos/${GITHUB_REPOSITORY}/check-runs" --input /tmp/checkrun.json > /dev/null 2>&1
+              echo "check run publish exit: $?"
             fi
-            echo "### Build failed — the compiler output was attached to the 'AROHI Gradle log' check run." >> "$GITHUB_STEP_SUMMARY"
+            echo "### Build failed — full output attached to the 'AROHI Gradle log' check run." >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
 
