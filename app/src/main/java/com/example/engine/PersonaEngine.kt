@@ -30,6 +30,13 @@ class PersonaEngine {
         val weatherSummary: String? = null
     )
 
+    /**
+     * The same prompt as plain text — used by the Claude transport (Anthropic takes the system
+     * prompt as a top-level string instead of a systemInstruction content block).
+     */
+    fun buildSystemPrompt(context: PersonaContext): String =
+        buildSystemInstruction(context).parts.firstOrNull()?.text ?: ""
+
     fun buildSystemInstruction(context: PersonaContext): Content {
         val addressRule = if (context.pronounStyle == "apni") {
             "The user prefers polite language: address them with \"আপনি\" and polite verb forms." +

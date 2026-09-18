@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +29,7 @@ import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -85,6 +87,13 @@ fun SettingsScreen(
 
     var pitchSlider by remember { mutableFloatStateOf(1.15f) }
     var speedSlider by remember { mutableFloatStateOf(1.0f) }
+
+    val provider by viewModel.providerFlow.collectAsState()
+    val anthropicKey by viewModel.anthropicKeyFlow.collectAsState()
+    val anthropicModel by viewModel.anthropicModelFlow.collectAsState()
+    var anthropicKeyInput by remember(anthropicKey) { mutableStateOf(anthropicKey) }
+    var anthropicModelInput by remember(anthropicModel) { mutableStateOf(anthropicModel) }
+    var isAnthropicVisible by remember { mutableStateOf(false) }
 
     Column(
         modifier = modifier
@@ -183,6 +192,147 @@ fun SettingsScreen(
                         colors = ButtonDefaults.buttonColors(containerColor = CyanPrimary),
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.testTag("save_api_key_btn")
+                    ) {
+                        Text("সেভ করুন", color = Color(0xFF020205), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // Cloud Brain Provider Card — the very same AROHI persona, two possible engines
+        GlassCard(modifier = Modifier.fillMaxWidth()) {
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.SmartToy,
+                        contentDescription = null,
+                        tint = VioletBright,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "ব্রেইন প্রোভাইডার",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Text(
+                    text = "আরোহীর ব্যক্তিত্ব, বাংলা ও টুল—সব একই থাকে; আপনি শুধু বেছে নিন কোন এজেন্ট ইঞ্জিন উত্তর দেবে।",
+                    fontSize = 11.sp,
+                    color = TextSecondary
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    ProviderPill(
+                        label = "Gemini (ডিফল্ট)",
+                        selected = provider != "claude",
+                        onClick = { viewModel.setBrainProvider("gemini") },
+                        testTagValue = "provider_gemini"
+                    )
+                    ProviderPill(
+                        label = "Claude",
+                        selected = provider == "claude",
+                        onClick = { viewModel.setBrainProvider("claude") },
+                        testTagValue = "provider_claude"
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                OutlinedTextField(
+                    value = anthropicKeyInput,
+                    onValueChange = { anthropicKeyInput = it },
+                    label = { Text("Anthropic (Claude) API Key", color = TextSecondary) },
+                    visualTransformation = if (isAnthropicVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    trailingIcon = {
+                        IconButton(onClick = { isAnthropicVisible = !isAnthropicVisible }) {
+                            Icon(
+                                imageVector = if (isAnthropicVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                contentDescription = "Toggle Anthropic Key Visibility",
+                                tint = TextMuted
+                            )
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("anthropic_key_input"),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = VioletBright,
+                        unfocusedBorderColor = Color(0x1AFFFFFF),
+                        focusedContainerColor = Color(0x0DFFFFFF),
+                        unfocusedContainerColor = Color(0x0DFFFFFF),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    ),
+                    singleLine = true
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedTextField(
+                    value = anthropicModelInput,
+                    onValueChange = { anthropicModelInput = it },
+                    label = { Text("Claude Model", color = TextSecondary) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("anthropic_model_input"),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = VioletBright,
+                        unfocusedBorderColor = Color(0x1AFFFFFF),
+                        focusedContainerColor = Color(0x0DFFFFFF),
+                        unfocusedContainerColor = Color(0x0DFFFFFF),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    ),
+                    singleLine = true
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Text(
+                    text = "নোট: Claude বেছে নিলে শুধু Claude কী লাগবে। ফ্রি Gemini কী আগের মতোই কাজ করবে।",
+                    fontSize = 10.sp,
+                    color = TextMuted
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            viewModel.checkClaudeConnection(anthropicKeyInput)
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, VioletBright.copy(alpha = 0.4f)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = VioletBright)
+                    ) {
+                        Text("Claude টেস্ট", fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+                    }
+
+                    Button(
+                        onClick = {
+                            viewModel.saveAnthropic(anthropicKeyInput, anthropicModelInput)
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = VioletBright),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.testTag("save_anthropic_btn")
                     ) {
                         Text("সেভ করুন", color = Color(0xFF020205), fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     }
@@ -483,3 +633,30 @@ private fun openUrl(context: Context, url: String) {
     }
 }
 
+
+@Composable
+private fun ProviderPill(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    testTagValue: String
+) {
+    val accent = if (selected) VioletBright else TextMuted
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (selected) VioletBright.copy(alpha = 0.16f) else Color(0x0DFFFFFF))
+            .border(1.dp, accent.copy(alpha = if (selected) 0.7f else 0.25f), RoundedCornerShape(12.dp))
+            .testTag(testTagValue)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 9.dp)
+    ) {
+        Text(
+            text = label,
+            fontSize = 12.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+            color = if (selected) Color.White else TextSecondary
+        )
+    }
+}

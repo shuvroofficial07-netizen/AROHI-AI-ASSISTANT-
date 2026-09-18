@@ -3,6 +3,9 @@ package com.example.engine
 import android.content.Context
 import com.example.ArohiApplication
 import com.example.data.local.entity.ReminderRepeat
+import com.example.data.remote.ClaudeClient
+import com.example.data.remote.ClaudeMessage
+import com.example.data.remote.ClaudeTool
 import com.example.data.remote.Content
 import com.example.data.remote.FunctionCall
 import com.example.data.remote.GenerateContentRequest
@@ -103,7 +106,7 @@ class ArohiBrain(
                 }
             }
 
-            val apiKey = settingsRepository.getApiKey()
+            val apiKey = settingsRepository.getActiveApiKey()
             val telemetry = deviceStateManager.getTelemetry()
             val privacyMode = settingsRepository.isPrivateMode()
             val cloudAllowed = settingsRepository.isCloudAiEnabled() && !privacyMode
@@ -113,8 +116,19 @@ class ArohiBrain(
                 return offlineReply(trimmedInput, privacyMode)
             }
 
-            // 4. Cloud brain with the full persona + tools
-            val systemInstruction = personaEngine.buildSystemInstruction(buildPersonaContext(telemetry))
+            val personaContext = buildPersonaContext(telemetry)
+
+            // 4a. Claude (Anthropic) transport — the user picked it and supplied a key.
+            if (settingsRepository.isClaudeProvider()) {
+                return claudeReply(
+                    userInput = userInput,
+                    systemPrompt = personaEngine.buildSystemPrompt(personaContext),
+                    apiKey = apiKey
+                )
+            }
+
+            // 4b. Gemini transport (default) with the full persona + tools
+            val systemInstruction = personaEngine.buildSystemInstruction(personaContext)
             val recentMessages = conversationRepository.getRecentMessages(10).reversed()
             val contents = mutableListOf<Content>()
 
@@ -228,6 +242,117 @@ class ArohiBrain(
             return BrainResponse(text = errText, emotion = ArohiEmotion.ERROR)
         }
     }
+
+    /**
+     * Claude (Anthropic Messages API) path. Same persona, same tools, same emotion contract —
+     * only the transport differs, so the user can pick whichever key they own.
+     */
+    private suspend fun claudeReply(
+        userInput: String,
+        systemPrompt: String,
+        apiKey: String
+    ): BrainResponse {
+        val history = conversationRepository.getRecentMessages(10).reversed()
+        val messages = mutableListOf<ClaudeMessage>()
+        for (msg in history) {
+            val role = if (msg.role == "USER") "user" else "assistant"
+            if (msg.content.isBlank()) continue
+            messages.add(ClaudeMessage(role = role, content = msg.content))
+        }
+        messages.add(ClaudeMessage(role = "user", content = userInput))
+
+        val response = ClaudeClient.sendMessage(
+            apiKey = apiKey,
+            model = settingsRepository.getAnthropicModel(),
+            system = systemPrompt,
+            messages = messages,
+            tools = claudeTools(),
+            maxTokens = 1024
+        )
+
+        if (!response.isSuccessful) {
+            val code = response.code()
+            val fallback = offlineFallbackEngine.respond(userInput, settingsRepository.isPrivateMode())
+            val text = if (settingsRepository.isOfflineFallbackEnabled()) {
+                "ক্লাউডে সংযোগ করতে পারছি না (Claude সমস্যা $code)। ${fallback.text}"
+            } else {
+                "Claude সার্ভার সমস্যা ($code)। অনুগ্রহ করে নেটওয়ার্ক ও API কী যাচাই করুন।"
+            }
+            _isProcessing.value = false
+            emotionEngine.setEmotion(ArohiEmotion.CONCERNED)
+            return BrainResponse(text = text, emotion = ArohiEmotion.CONCERNED)
+        }
+
+        val blocks = response.body()?.content ?: emptyList()
+
+        // Tool use?
+        val toolUse = blocks.firstOrNull { it.type == "tool_use" && !it.name.isNullOrBlank() }
+        if (toolUse != null) {
+            emotionEngine.setEmotion(ArohiEmotion.EXECUTING)
+            val toolExecResult = executeToolCall(
+                FunctionCall(name = toolUse.name ?: "", args = toolUse.input ?: emptyMap())
+            )
+            _isProcessing.value = false
+            val finalEmotion = emotionEngine.inferEmotionFromText(toolExecResult)
+            emotionEngine.setEmotion(finalEmotion)
+            conversationRepository.addMessage(
+                role = "AROHI",
+                content = toolExecResult,
+                emotion = finalEmotion.name,
+                isVoice = true,
+                toolCallJson = toolUse.name,
+                toolResultJson = toolExecResult
+            )
+            return BrainResponse(
+                text = toolExecResult,
+                emotion = finalEmotion,
+                toolCall = toolUse.name,
+                toolResult = toolExecResult
+            )
+        }
+
+        val rawText = blocks.filter { it.type == "text" }.mapNotNull { it.text }.joinToString(" ").trim()
+            .ifBlank { "আমি বুঝতে পারিনি, একটু আবার বলো?" }
+        val parsed = EmotionTagParser.parse(rawText)
+        val responseText = parsed.text.ifBlank { "আমি বুঝতে পারিনি, একটু আবার বলো?" }
+        val finalEmotion = parsed.emotion
+            ?: if (EmotionTagParser.needsFallbackInference(parsed.hadTag)) {
+                emotionEngine.inferEmotionFromText(responseText)
+            } else {
+                ArohiEmotion.SPEAKING
+            }
+
+        _isProcessing.value = false
+        emotionEngine.setEmotion(finalEmotion)
+        conversationRepository.addMessage(
+            role = "AROHI",
+            content = responseText,
+            emotion = finalEmotion.name,
+            isVoice = true
+        )
+        return BrainResponse(text = responseText, emotion = finalEmotion)
+    }
+
+    /** Projects the shared Gemini tool declarations into Anthropic's JSON-schema tool format. */
+    private fun claudeTools(): List<ClaudeTool> =
+        ToolRegistry.availableTools.functionDeclarations.orEmpty().map { declaration ->
+            val properties = LinkedHashMap<String, Any?>()
+            declaration.parameters?.properties?.forEach { (key, schema) ->
+                properties[key] = buildMap<String, Any?> {
+                    put("type", schema.type.lowercase())
+                    schema.description?.let { put("description", it) }
+                }
+            }
+            ClaudeTool(
+                name = declaration.name,
+                description = declaration.description,
+                inputSchema = mapOf(
+                    "type" to "object",
+                    "properties" to properties,
+                    "required" to (declaration.parameters?.required ?: emptyList<String>())
+                )
+            )
+        }
 
     private suspend fun finishLocal(result: LocalExecutionResult): BrainResponse {
         _isProcessing.value = false

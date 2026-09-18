@@ -12,6 +12,7 @@ import com.example.data.local.entity.ReminderEntity
 import com.example.data.local.entity.RoutineEntity
 import com.example.data.local.entity.TaskLogEntity
 import com.example.data.local.entity.TodoEntity
+import com.example.data.remote.ClaudeClient
 import com.example.data.remote.GeminiClient
 import com.example.data.remote.GeminiConnectionState
 import com.example.data.remote.InlineData
@@ -28,6 +29,7 @@ import com.example.service.ArohiNotificationListenerService
 import com.example.service.DiagnosticCategory
 import com.example.service.DiagnosticItem
 import com.example.service.DiagnosticReport
+import com.example.data.repository.SettingsRepository
 import com.example.data.repository.TaskLogRepository
 import com.example.service.DiagnosticService
 import com.example.service.DiagnosticStatusLevel
@@ -123,6 +125,9 @@ class ArohiViewModel(application: Application) : AndroidViewModel(application) {
     val voiceSpeedFlow = app.settingsRepository.voiceSpeedFlow
     val voicePitchFlow = app.settingsRepository.voicePitchFlow
     val assistantNameFlow = app.settingsRepository.assistantNameFlow
+    val providerFlow = app.settingsRepository.providerFlow
+    val anthropicKeyFlow = app.settingsRepository.anthropicKeyFlow
+    val anthropicModelFlow = app.settingsRepository.anthropicModelFlow
 
     // Productivity data (Room backed)
     val reminders: StateFlow<List<ReminderEntity>> = app.reminderRepository.allReminders
@@ -317,6 +322,47 @@ class ArohiViewModel(application: Application) : AndroidViewModel(application) {
     fun saveApiKey(apiKey: String) {
         app.settingsRepository.setApiKey(apiKey)
         checkGeminiConnection(apiKey)
+    }
+
+    /** Switch the cloud brain between Gemini and Claude (both stay free to choose). */
+    fun setBrainProvider(provider: String) {
+        app.settingsRepository.setProvider(provider)
+        val key = app.settingsRepository.getActiveApiKey()
+        if (key.isNotBlank()) checkActiveProvider(key)
+    }
+
+    fun saveAnthropic(apiKey: String, model: String) {
+        app.settingsRepository.setAnthropicApiKey(apiKey)
+        if (model.isNotBlank()) app.settingsRepository.setAnthropicModel(model)
+        app.settingsRepository.setProvider(SettingsRepository.PROVIDER_CLAUDE)
+        if (apiKey.isNotBlank()) checkClaudeConnection(apiKey)
+    }
+
+    fun checkClaudeConnection(apiKey: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _geminiState.value = GeminiConnectionState.CHECKING
+            _geminiStatusMessage.value = "Checking Claude link..."
+            val (state, msg) = ClaudeClient.testConnection(
+                apiKey,
+                app.settingsRepository.getAnthropicModel()
+            )
+            _geminiState.value = state
+            _geminiStatusMessage.value = msg
+            _statusMessage.value = msg
+        }
+    }
+
+    /** Tests whichever provider is currently selected. */
+    fun checkActiveProvider(apiKey: String) {
+        if (app.settingsRepository.isClaudeProvider()) {
+            checkClaudeConnection(apiKey)
+        } else {
+            checkGeminiConnection(apiKey)
+        }
+    }
+
+    fun setAnthropicModelName(model: String) {
+        app.settingsRepository.setAnthropicModel(model)
     }
 
     fun checkGeminiConnection(apiKey: String) {
@@ -713,12 +759,99 @@ class ArohiViewModel(application: Application) : AndroidViewModel(application) {
 
     fun restoreFromCloud() {
         viewModelScope.launch(Dispatchers.IO) {
+            _cloudSyncStatus.value = "ক্লাউড থেকে নামানো হচ্ছে..."
             val result = CloudSyncManager.download(app)
             _cloudSyncStatus.value = result.fold(
-                onSuccess = { payload -> "ক্লাউড ব্যাকআপ পাওয়া গেছে (${payload.length} অক্ষর)" },
+                onSuccess = { payload ->
+                    val restored = runCatching { applyCloudBackup(payload) }.getOrElse {
+                        return@fold "রিস্টোর ব্যর্থ: ${it.localizedMessage}"
+                    }
+                    "রিস্টোর সম্পন্ন — $restored"
+                },
                 onFailure = { "রিস্টোর ব্যর্থ: ${it.localizedMessage}" }
             )
         }
+    }
+
+    /**
+     * Re-applies a previously uploaded backup. Items are merged by key/title so restoring twice
+     * never creates duplicates, and reminders are re-armed with the real AlarmManager.
+     */
+    private suspend fun applyCloudBackup(payload: String): String {
+        val root = org.json.JSONObject(payload)
+        var memoryCount = 0
+        var todoCount = 0
+        var noteCount = 0
+        var reminderCount = 0
+
+        root.optJSONArray("memories")?.let { array ->
+            for (index in 0 until array.length()) {
+                val item = array.optJSONObject(index) ?: continue
+                val key = item.optString("key").trim()
+                val value = item.optString("value").trim()
+                if (key.isBlank() || value.isBlank()) continue
+                if (app.memoryRepository.getByKey(key) != null) continue
+                app.memoryRepository.saveMemory(
+                    category = item.optString("category", "IMPORTANT_FACTS"),
+                    key = key,
+                    value = value
+                )
+                memoryCount++
+            }
+        }
+
+        root.optJSONArray("todos")?.let { array ->
+            for (index in 0 until array.length()) {
+                val item = array.optJSONObject(index) ?: continue
+                val title = item.optString("title").trim()
+                if (title.isBlank()) continue
+                val done = item.optBoolean("isDone", item.optBoolean("isCompleted", false))
+                if (done) continue
+                if (app.todoRepository.findOpenByTitle(title) != null) continue
+                app.todoRepository.addTodo(
+                    title = title,
+                    details = item.optString("details", ""),
+                    priority = item.optInt("priority", 1)
+                )
+                todoCount++
+            }
+        }
+
+        root.optJSONArray("notes")?.let { array ->
+            for (index in 0 until array.length()) {
+                val item = array.optJSONObject(index) ?: continue
+                val title = item.optString("title").trim()
+                val content = item.optString("content")
+                if (title.isBlank() && content.isBlank()) continue
+                val existing = app.noteRepository.getNotes().any { it.title == title && it.content == content }
+                if (existing) continue
+                app.noteRepository.addNote(title.ifBlank { "নোট" }, content)
+                noteCount++
+            }
+        }
+
+        val now = System.currentTimeMillis()
+        root.optJSONArray("reminders")?.let { array ->
+            for (index in 0 until array.length()) {
+                val item = array.optJSONObject(index) ?: continue
+                val title = item.optString("title").trim()
+                var triggerAt = item.optLong("triggerAt", 0L)
+                if (title.isBlank() || item.optBoolean("isCompleted", false)) continue
+                // Past-dated entries move to "tomorrow at the same time" instead of firing instantly.
+                if (triggerAt <= now) triggerAt = now + 24L * 60L * 60L * 1000L
+                val exists = app.reminderRepository.getActiveReminders().any { it.title == title }
+                if (exists) continue
+                app.reminderRepository.addReminder(
+                    title = title,
+                    triggerAt = triggerAt,
+                    repeatRule = item.optString("repeatRule", "NONE")
+                )
+                reminderCount++
+            }
+        }
+
+        refreshProactiveSuggestion()
+        return "মেমোরি $memoryCount, টু-ডু $todoCount, নোট $noteCount, রিমাইন্ডার $reminderCount যোগ হয়েছে"
     }
 
     fun deleteAllUserData() {

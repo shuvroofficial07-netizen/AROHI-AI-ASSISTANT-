@@ -26,10 +26,10 @@ class ExampleRobolectricTest {
     val emotionEngine = EmotionEngine()
     assertEquals(ArohiEmotion.IDLE, emotionEngine.currentEmotion.value)
     
-    val happyEmotion = emotionEngine.inferEmotionFromText("দারুণ হয়েছে!")
+    val happyEmotion = emotionEngine.inferEmotionFromText("দারুণ হয়েছে!")
     assertEquals(ArohiEmotion.HAPPY, happyEmotion)
 
-    val errorEmotion = emotionEngine.inferEmotionFromText("দুঃখিত, ব্যর্থ হয়েছে")
+    val errorEmotion = emotionEngine.inferEmotionFromText("দুঃখিত, ব্যর্থ হয়েছে")
     assertEquals(ArohiEmotion.ERROR, errorEmotion)
   }
 }

@@ -3,6 +3,8 @@ package com.example.data.repository
 import android.content.Context
 import android.content.SharedPreferences
 import com.example.BuildConfig
+import com.example.data.remote.ClaudeClient
+import com.example.data.remote.GeminiConnectionState
 import com.example.privacy.CryptoManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -92,6 +94,15 @@ class SettingsRepository(context: Context) {
     private val _weatherAlertsFlow = MutableStateFlow(isWeatherAlertsEnabled())
     val weatherAlertsFlow: StateFlow<Boolean> = _weatherAlertsFlow.asStateFlow()
 
+    private val _providerFlow = MutableStateFlow(getProvider())
+    val providerFlow: StateFlow<String> = _providerFlow.asStateFlow()
+
+    private val _anthropicKeyFlow = MutableStateFlow(getAnthropicApiKey())
+    val anthropicKeyFlow: StateFlow<String> = _anthropicKeyFlow.asStateFlow()
+
+    private val _anthropicModelFlow = MutableStateFlow(getAnthropicModel())
+    val anthropicModelFlow: StateFlow<String> = _anthropicModelFlow.asStateFlow()
+
     fun getApiKey(): String {
         val customKey = prefs.getString(KEY_API_KEY, "") ?: ""
         if (customKey.isNotBlank()) {
@@ -130,6 +141,54 @@ class SettingsRepository(context: Context) {
         prefs.edit().putString(KEY_MODEL_NAME, name).apply()
         _modelNameFlow.value = name
     }
+
+    // ---------------------------------------------------------------- brain provider
+
+    /** "gemini" (default) or "claude" — AROHI's persona is identical either way. */
+    fun getProvider(): String = prefs.getString(KEY_PROVIDER, PROVIDER_GEMINI) ?: PROVIDER_GEMINI
+
+    fun setProvider(provider: String) {
+        val clean = if (provider == PROVIDER_CLAUDE) PROVIDER_CLAUDE else PROVIDER_GEMINI
+        prefs.edit().putString(KEY_PROVIDER, clean).apply()
+        _providerFlow.value = clean
+    }
+
+    fun isClaudeProvider(): Boolean = getProvider() == PROVIDER_CLAUDE
+
+    fun getAnthropicApiKey(): String {
+        val stored = prefs.getString(KEY_ANTHROPIC_KEY, "") ?: ""
+        if (stored.isBlank()) return ""
+        val decrypted = CryptoManager.decrypt(stored)
+        return decrypted.ifBlank { stored }
+    }
+
+    fun setAnthropicApiKey(key: String) {
+        val trimmed = key.trim()
+        val stored = if (isLocalEncryptionEnabled() && trimmed.isNotBlank()) {
+            CryptoManager.encrypt(trimmed)
+        } else {
+            trimmed
+        }
+        prefs.edit().putString(KEY_ANTHROPIC_KEY, stored).apply()
+        _anthropicKeyFlow.value = getAnthropicApiKey()
+    }
+
+    fun getAnthropicModel(): String =
+        prefs.getString(KEY_ANTHROPIC_MODEL, ClaudeClient.DEFAULT_MODEL) ?: ClaudeClient.DEFAULT_MODEL
+
+    fun setAnthropicModel(name: String) {
+        val clean = name.trim().ifBlank { ClaudeClient.DEFAULT_MODEL }
+        prefs.edit().putString(KEY_ANTHROPIC_MODEL, clean).apply()
+        _anthropicModelFlow.value = clean
+    }
+
+    /** The API key of whichever provider is currently active. */
+    fun getActiveApiKey(): String =
+        if (isClaudeProvider()) getAnthropicApiKey() else getApiKey()
+
+    /** The model of whichever provider is currently active. */
+    fun getActiveModelName(): String =
+        if (isClaudeProvider()) getAnthropicModel() else getModelName()
 
     fun isProactiveEnabled(): Boolean {
         return prefs.getBoolean(KEY_PROACTIVE_ENABLED, true)
@@ -274,14 +333,24 @@ class SettingsRepository(context: Context) {
     fun isLocalEncryptionEnabled(): Boolean = prefs.getBoolean(KEY_ENCRYPTION, false)
 
     fun setLocalEncryptionEnabled(enabled: Boolean) {
-        val currentKey = prefs.getString(KEY_API_KEY, "") ?: ""
-        if (enabled && currentKey.isNotBlank() && !CryptoManager.isEncrypted(currentKey)) {
-            prefs.edit().putString(KEY_API_KEY, CryptoManager.encrypt(currentKey)).apply()
-        } else if (!enabled && CryptoManager.isEncrypted(currentKey)) {
-            prefs.edit().putString(KEY_API_KEY, CryptoManager.decrypt(currentKey)).apply()
-        }
+        reKeyPreference(KEY_API_KEY, enabled)
+        reKeyPreference(KEY_ANTHROPIC_KEY, enabled)
         prefs.edit().putBoolean(KEY_ENCRYPTION, enabled).apply()
         _encryptionFlow.value = enabled
+        _apiKeyFlow.value = getApiKey()
+        _anthropicKeyFlow.value = getAnthropicApiKey()
+    }
+
+    /** Encrypts (or decrypts) a single stored secret when the privacy toggle flips. */
+    private fun reKeyPreference(key: String, encrypt: Boolean) {
+        val current = prefs.getString(key, "") ?: ""
+        if (current.isBlank()) return
+        val rewritten = when {
+            encrypt && !CryptoManager.isEncrypted(current) -> CryptoManager.encrypt(current)
+            !encrypt && CryptoManager.isEncrypted(current) -> CryptoManager.decrypt(current)
+            else -> return
+        }
+        prefs.edit().putString(key, rewritten).apply()
     }
 
     fun isCloudSyncEnabled(): Boolean = prefs.getBoolean(KEY_CLOUD_SYNC, false)
@@ -353,9 +422,14 @@ class SettingsRepository(context: Context) {
         const val PRONOUN_APNI = "apni"
         const val AVATAR_2D = "2D"
         const val AVATAR_3D = "3D"
+        const val PROVIDER_GEMINI = "gemini"
+        const val PROVIDER_CLAUDE = "claude"
 
         private const val KEY_API_KEY = "key_gemini_api_key"
         private const val KEY_MODEL_NAME = "key_model_name"
+        private const val KEY_PROVIDER = "key_brain_provider"
+        private const val KEY_ANTHROPIC_KEY = "key_anthropic_api_key"
+        private const val KEY_ANTHROPIC_MODEL = "key_anthropic_model"
         private const val KEY_PROACTIVE_ENABLED = "key_proactive_enabled"
         private const val KEY_PRIVATE_MODE = "key_private_mode"
         private const val KEY_SILENCE_MODE = "key_silence_mode"

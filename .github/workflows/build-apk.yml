@@ -67,7 +67,18 @@ jobs:
           fi
 
       - name: Build debug APK
-        run: ./gradlew :app:assembleDebug --stacktrace --no-daemon
+        run: |
+          set -o pipefail
+          ./gradlew :app:assembleDebug --stacktrace --no-daemon --console=plain 2>&1 | tee /tmp/build.log
+          STATUS=${PIPESTATUS[0]}
+          if [ "$STATUS" -ne 0 ]; then
+            ERRORS=$(grep -E '^e: |error:|FAILURE:|Caused by:|Cannot invoke|Execution failed|What went wrong|FAILED' /tmp/build.log | head -150 || true)
+            if [ -z "$ERRORS" ]; then ERRORS=$(tail -c 4000 /tmp/build.log || true); fi
+            ESCAPED=$(printf '%s' "$ERRORS" | head -c 6000 | sed -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=Gradle build failed::${ESCAPED}"
+            echo "### Build failed — see the error annotation." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
       - name: Verify APK exists
         run: |
