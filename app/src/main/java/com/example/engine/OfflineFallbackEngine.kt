@@ -29,7 +29,7 @@ class OfflineFallbackEngine(private val conversationHistoryProvider: () -> Strin
     fun respond(input: String, privacyMode: Boolean = false): FallbackReply {
         val lower = input.lowercase(Locale.ROOT)
 
-        val preset = when {
+        val preset: Preset? = when {
             lower.contains("কেমন আছ") || lower.contains("how are you") ->
                 Preset(
                     "wellbeing",
@@ -77,6 +77,8 @@ class OfflineFallbackEngine(private val conversationHistoryProvider: () -> Strin
 
             lower.contains("তারিখ") || lower.contains("আজ কী বার") || lower.contains("today date") ->
                 Preset("date", "আজ ${currentDateText()}।", ArohiEmotion.CALM)
+
+            else -> null
         }
 
         if (preset != null) {

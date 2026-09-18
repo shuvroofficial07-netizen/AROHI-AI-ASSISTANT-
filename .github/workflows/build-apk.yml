@@ -68,6 +68,8 @@ jobs:
           fi
 
       - name: Build debug APK
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set +e
           ./gradlew :app:assembleDebug --stacktrace --no-daemon --console=plain > /tmp/build.log 2>&1
