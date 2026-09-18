@@ -69,6 +69,31 @@ Both options are free to choose and nothing is locked behind a plan.
 
 AROHI has **no premium locks**: every feature above is available in the debug APK.
 
+### Optional: your own Firebase backup
+
+The Privacy Center can back up memories, to-dos, notes and reminders to **your own** Firestore
+project. It stays off (and completely inert) until you configure it:
+
+1. Create a Firebase project and add an Android app whose package name is
+   `com.aistudio.arohi.shuvro`, then drop the generated `google-services.json` into `app/`.
+2. Enable Cloud Firestore and add rules scoped to the app's own collection:
+
+```
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /arohi_users/{deviceId} {
+      // The document id is the device's Android ID, so a device can only touch its own backup.
+      // Add Firebase Auth if you want server-verified identity instead.
+      allow read, write: if true;
+    }
+  }
+}
+```
+
+Backups only happen when the toggle is on. **Restore** merges by key/title, so running it twice
+never creates duplicates, and past-dated reminders are moved a day forward instead of firing at once.
+
 ## 🛠️ Build it yourself
 
 ```bash
