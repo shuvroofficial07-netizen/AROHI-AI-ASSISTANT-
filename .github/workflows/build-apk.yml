@@ -92,6 +92,26 @@ jobs:
             exit 1
           fi
 
+      - name: Run unit tests (non-blocking)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          ./gradlew :app:testDebugUnitTest --no-daemon --console=plain > /tmp/test.log 2>&1
+          TEST_STATUS=$?
+          echo "---- test tail ----"
+          tail -n 30 /tmp/test.log
+          echo "---- end test tail ----"
+          if [ "$TEST_STATUS" -ne 0 ]; then
+            FAILURES=$(grep -E '^e: |FAILED|error:|Test.*>.*FAILED|expected:' /tmp/test.log | head -120)
+            if [ -z "$FAILURES" ]; then FAILURES=$(tail -c 4000 /tmp/test.log); fi
+            printf '%s' "$FAILURES" > /tmp/test-errors.txt
+            ESCAPED=$(head -c 5000 /tmp/test-errors.txt | sed -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            echo "::warning::${ESCAPED}"
+          fi
+          exit 0
+
       - name: Verify APK exists
         run: |
           APK_PATH="app/build/outputs/apk/debug/app-debug.apk"

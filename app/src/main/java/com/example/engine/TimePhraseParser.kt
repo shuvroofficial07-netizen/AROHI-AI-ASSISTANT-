@@ -44,7 +44,7 @@ object TimePhraseParser {
     fun parseRepeat(text: String): String {
         val lower = normalizeDigits(text).lowercase(Locale.ROOT)
         return when {
-            lower.contains("প্রতিদিন") || lower.contains("roজ") || lower.contains("রোজ") ||
+            lower.contains("প্রতিদিন") || lower.contains("রোজ") ||
                 lower.contains("every day") || lower.contains("daily") -> ReminderRepeat.DAILY
             lower.contains("প্রতি সপ্তাহ") || lower.contains("every week") || lower.contains("weekly") ->
                 ReminderRepeat.WEEKLY
